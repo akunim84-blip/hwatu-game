@@ -19,10 +19,12 @@
 | `lib/util.js` | 셔플 등 유틸 (crypto 난수) |
 | `shared/cards.js` | 화투 48장(+보너스 2장)과 섯다 20장 정의 (서버/브라우저 공용) |
 | `public/` | 프론트엔드 (`index.html`, `app.js`, `style.css`) — 빌드 과정 없는 순수 JS |
+| `public/fx.js` | 효과음(Web Audio API로 직접 합성한 '탁'·'틱' 소리, 오디오 파일 없음)과 카드 날리기 애니메이션 헬퍼. 🔊/🔇 버튼으로 끄기(localStorage 저장) |
 | `public/cards/` | 카드 이미지 (`c00.png`~`c47.png`, `back.svg`, `bonus.svg`), 출처 `LICENSE.txt` |
 | `assets/hwatu-src/` | 카드 원본 SVG (Wikimedia Commons) |
 | `test/` | 족보·점수·엔진 자동 테스트 (`npm test`) |
 | `sim/simulate.js` | 봇들이 실제 서버에 접속해 수백 판을 돌리는 시뮬레이션 (`npm run sim`) |
+| `scripts/verify-ui.js` | 폰 화면(360x640·390x844·412x915·390x700·가로 844x390)에서 게임 화면이 스크롤 없이 한 화면에 들어오는지 검사 + 패 돌리기/패 내기 애니메이션 스크린샷 |
 | `scripts/` | 카드 이미지 빌드, 스크린샷, 콘택트 시트, 서버/터널 시작·중지 스크립트 |
 | `render.yaml` | Render 배포 설정 |
 

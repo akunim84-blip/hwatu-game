@@ -204,3 +204,17 @@ test('섯다 랜덤 시뮬레이션 3000판', () => {
     assert.equal(Object.values(g.result.chipDelta).reduce((a, b) => a + b, 0), 0);
   }
 });
+test('view.lastPlay: 낸 패와 뒤집은 패 (애니메이션/효과음용)', () => {
+  const g = new GoStopGame(P2, { bonus: false, perPoint: 10 });
+  assert.equal(g.view('a').lastPlay, null);
+  const i = g.turn, pid = g.players[i].id;
+  const o = g.options(i);
+  const c = o.cards[0];
+  g.act(pid, { type: 'play', card: c.id, floorCard: c.matches ? c.matches[0] : undefined });
+  const lp = g.view('a').lastPlay;
+  assert.equal(lp.seq, 1);
+  assert.equal(lp.seat, i);
+  assert.equal(lp.card, c.id);
+  assert.equal(lp.flip, g.lastFlip);
+  assert.notEqual(lp.flip, null);
+});
