@@ -1,0 +1,27 @@
+{
+  "name": "hwatu-game",
+  "version": "1.0.0",
+  "description": "친구끼리 화투 (섯다·맞고·고스톱) - 가상 칩 전용 실시간 멀티플레이 웹게임",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/",
+    "sim": "node sim/simulate.js 200",
+    "screenshots": "node scripts/screenshots.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1",
+    "socket.io": "^4.8.4",
+    "socket.io-client": "^4.8.4"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.12.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "private": true
+}

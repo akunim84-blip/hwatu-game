@@ -1,0 +1,69 @@
+화투 카드 이미지 출처 및 라이선스
+====================================
+
+카드 앞면 48장 (c00.png ~ c47.png)
+-----------------------------------
+출처: Wikimedia Commons, Category:SVG Hwatu
+      https://commons.wikimedia.org/wiki/Category:SVG_Hwatu
+저작자: Spenĉjo (Wikimedia Commons 사용자). 설명문 인용: "Extracted from File:Hwatu overview.svg
+        and optimized. Made by Marcus Richert on the basis of Louie Mantia, Jr.'s Hanafuda graphics"
+라이선스: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
+          https://creativecommons.org/licenses/by-sa/4.0/
+
+변경 사항: 원본 SVG(원본은 assets/hwatu-src/ 에 보관)를 206x336 PNG로 래스터화했습니다.
+게임 화면에서는 가독성을 위해 월 숫자 배지와 '쌍피' 표시를 CSS로 덧씌웁니다.
+이 PNG 파일들도 CC BY-SA 4.0 으로 배포됩니다.
+
+카드 id 매핑 (id = (월-1)*4 + 순번; 순번 0=광/열끗, 1=띠(8월은 열끗), 2·3=피; 11월 1번=쌍피, 12월: 0 비광, 1 열끗(제비), 2 띠, 3 쌍피):
+  c00.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_January_Hikari.svg
+  c01.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_January_Tanzaku.svg
+  c02.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_January_Kasu_1.svg
+  c03.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_January_Kasu_2.svg
+  c04.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_February_Tane.svg
+  c05.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_February_Tanzaku.svg
+  c06.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_February_Kasu_1.svg
+  c07.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_February_Kasu_2.svg
+  c08.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_March_Hikari.svg
+  c09.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_March_Tanzaku.svg
+  c10.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_March_Kasu_1.svg
+  c11.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_March_Kasu_2.svg
+  c12.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_April_Tane.svg
+  c13.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_April_Tanzaku.svg
+  c14.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_April_Kasu_1.svg
+  c15.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_April_Kasu_2.svg
+  c16.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_May_Tane.svg
+  c17.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_May_Tanzaku.svg
+  c18.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_May_Kasu_1.svg
+  c19.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_May_Kasu_2.svg
+  c20.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_June_Tane.svg (Commons 500px 썸네일 PNG에서 변환)
+  c21.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_June_Tanzaku.svg
+  c22.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_June_Kasu_1.svg
+  c23.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_June_Kasu_2.svg
+  c24.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_July_Tane.svg
+  c25.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_July_Tanzaku.svg
+  c26.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_July_Kasu_1.svg (Commons 500px 썸네일 PNG에서 변환)
+  c27.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_July_Kasu_2.svg
+  c28.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_August_Hikari.svg
+  c29.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_August_Tane.svg
+  c30.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_August_Kasu_1.svg
+  c31.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_August_Kasu_2.svg
+  c32.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_September_Tane.svg
+  c33.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_September_Tanzaku.svg
+  c34.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_September_Kasu_1.svg
+  c35.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_September_Kasu_2.svg
+  c36.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_October_Tane.svg
+  c37.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_October_Tanzaku.svg
+  c38.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_October_Kasu_1.svg
+  c39.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_October_Kasu_2.svg
+  c40.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_November_Hikari.svg
+  c41.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_November_Kasu_2.svg
+  c42.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_November_Kasu_1.svg
+  c43.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_November_Kasu_3.svg
+  c44.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_December_Hikari.svg
+  c45.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_December_Tane.svg
+  c46.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_December_Tanzaku.svg
+  c47.png  <-  https://commons.wikimedia.org/wiki/File:Hwatu_December_Kasu.svg
+
+뒷면(back.svg), 보너스 쌍피(bonus.svg)
+--------------------------------------
+이 프로젝트에서 직접 만든 단순 도안입니다. CC0 (퍼블릭 도메인) 으로 배포합니다.

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 103 168" width="103" height="168">
+  <!-- 화투 뒷면 (자체 제작, CC0) : 전통 화투처럼 짙은 붉은색 단색 + 은은한 테두리 -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c0271c"/><stop offset="1" stop-color="#8e160f"/></linearGradient>
+    <pattern id="p" width="8" height="8" patternUnits="userSpaceOnUse"><circle cx="4" cy="4" r="1" fill="#000" opacity=".12"/></pattern>
+  </defs>
+  <rect x="0" y="0" width="103" height="168" rx="8" fill="#5a0c07"/>
+  <rect x="3" y="3" width="97" height="162" rx="6" fill="url(#g)"/>
+  <rect x="3" y="3" width="97" height="162" rx="6" fill="url(#p)"/>
+  <rect x="9" y="9" width="85" height="150" rx="4" fill="none" stroke="#f3c9a0" stroke-opacity=".35" stroke-width="1.2"/>
+</svg>

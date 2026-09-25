@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 103 168" width="103" height="168">
+  <!-- 보너스 쌍피 (자체 제작, CC0) -->
+  <rect x="0" y="0" width="103" height="168" rx="8" fill="#3b2a00"/>
+  <rect x="3" y="3" width="97" height="162" rx="6" fill="#fff6d8"/>
+  <rect x="8" y="8" width="87" height="152" rx="4" fill="none" stroke="#c89400" stroke-width="2"/>
+  <polygon points="51.5,34 58,52 77,52 61.5,63 67.5,81 51.5,70 35.5,81 41.5,63 26,52 45,52" fill="#f0a800" stroke="#a86b00" stroke-width="1.5"/>
+  <text x="51.5" y="112" font-size="22" font-weight="900" text-anchor="middle" fill="#6c3fb5" font-family="sans-serif">쌍피</text>
+  <text x="51.5" y="138" font-size="13" font-weight="700" text-anchor="middle" fill="#8a6a00" font-family="sans-serif">BONUS</text>
+</svg>

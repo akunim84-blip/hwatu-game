@@ -1,0 +1,194 @@
+{
+ "0": {
+  "file": "c00.png",
+  "source": "Hwatu_January_Hikari.svg"
+ },
+ "1": {
+  "file": "c01.png",
+  "source": "Hwatu_January_Tanzaku.svg"
+ },
+ "2": {
+  "file": "c02.png",
+  "source": "Hwatu_January_Kasu_1.svg"
+ },
+ "3": {
+  "file": "c03.png",
+  "source": "Hwatu_January_Kasu_2.svg"
+ },
+ "4": {
+  "file": "c04.png",
+  "source": "Hwatu_February_Tane.svg"
+ },
+ "5": {
+  "file": "c05.png",
+  "source": "Hwatu_February_Tanzaku.svg"
+ },
+ "6": {
+  "file": "c06.png",
+  "source": "Hwatu_February_Kasu_1.svg"
+ },
+ "7": {
+  "file": "c07.png",
+  "source": "Hwatu_February_Kasu_2.svg"
+ },
+ "8": {
+  "file": "c08.png",
+  "source": "Hwatu_March_Hikari.svg"
+ },
+ "9": {
+  "file": "c09.png",
+  "source": "Hwatu_March_Tanzaku.svg"
+ },
+ "10": {
+  "file": "c10.png",
+  "source": "Hwatu_March_Kasu_1.svg"
+ },
+ "11": {
+  "file": "c11.png",
+  "source": "Hwatu_March_Kasu_2.svg"
+ },
+ "12": {
+  "file": "c12.png",
+  "source": "Hwatu_April_Tane.svg"
+ },
+ "13": {
+  "file": "c13.png",
+  "source": "Hwatu_April_Tanzaku.svg"
+ },
+ "14": {
+  "file": "c14.png",
+  "source": "Hwatu_April_Kasu_1.svg"
+ },
+ "15": {
+  "file": "c15.png",
+  "source": "Hwatu_April_Kasu_2.svg"
+ },
+ "16": {
+  "file": "c16.png",
+  "source": "Hwatu_May_Tane.svg"
+ },
+ "17": {
+  "file": "c17.png",
+  "source": "Hwatu_May_Tanzaku.svg"
+ },
+ "18": {
+  "file": "c18.png",
+  "source": "Hwatu_May_Kasu_1.svg"
+ },
+ "19": {
+  "file": "c19.png",
+  "source": "Hwatu_May_Kasu_2.svg"
+ },
+ "20": {
+  "file": "c20.png",
+  "source": "Hwatu_June_Tane.png"
+ },
+ "21": {
+  "file": "c21.png",
+  "source": "Hwatu_June_Tanzaku.svg"
+ },
+ "22": {
+  "file": "c22.png",
+  "source": "Hwatu_June_Kasu_1.svg"
+ },
+ "23": {
+  "file": "c23.png",
+  "source": "Hwatu_June_Kasu_2.svg"
+ },
+ "24": {
+  "file": "c24.png",
+  "source": "Hwatu_July_Tane.svg"
+ },
+ "25": {
+  "file": "c25.png",
+  "source": "Hwatu_July_Tanzaku.svg"
+ },
+ "26": {
+  "file": "c26.png",
+  "source": "Hwatu_July_Kasu_1.png"
+ },
+ "27": {
+  "file": "c27.png",
+  "source": "Hwatu_July_Kasu_2.svg"
+ },
+ "28": {
+  "file": "c28.png",
+  "source": "Hwatu_August_Hikari.svg"
+ },
+ "29": {
+  "file": "c29.png",
+  "source": "Hwatu_August_Tane.svg"
+ },
+ "30": {
+  "file": "c30.png",
+  "source": "Hwatu_August_Kasu_1.svg"
+ },
+ "31": {
+  "file": "c31.png",
+  "source": "Hwatu_August_Kasu_2.svg"
+ },
+ "32": {
+  "file": "c32.png",
+  "source": "Hwatu_September_Tane.svg"
+ },
+ "33": {
+  "file": "c33.png",
+  "source": "Hwatu_September_Tanzaku.svg"
+ },
+ "34": {
+  "file": "c34.png",
+  "source": "Hwatu_September_Kasu_1.svg"
+ },
+ "35": {
+  "file": "c35.png",
+  "source": "Hwatu_September_Kasu_2.svg"
+ },
+ "36": {
+  "file": "c36.png",
+  "source": "Hwatu_October_Tane.svg"
+ },
+ "37": {
+  "file": "c37.png",
+  "source": "Hwatu_October_Tanzaku.svg"
+ },
+ "38": {
+  "file": "c38.png",
+  "source": "Hwatu_October_Kasu_1.svg"
+ },
+ "39": {
+  "file": "c39.png",
+  "source": "Hwatu_October_Kasu_2.svg"
+ },
+ "40": {
+  "file": "c40.png",
+  "source": "Hwatu_November_Hikari.svg"
+ },
+ "41": {
+  "file": "c41.png",
+  "source": "Hwatu_November_Kasu_2.svg"
+ },
+ "42": {
+  "file": "c42.png",
+  "source": "Hwatu_November_Kasu_1.svg"
+ },
+ "43": {
+  "file": "c43.png",
+  "source": "Hwatu_November_Kasu_3.svg"
+ },
+ "44": {
+  "file": "c44.png",
+  "source": "Hwatu_December_Hikari.svg"
+ },
+ "45": {
+  "file": "c45.png",
+  "source": "Hwatu_December_Tane.svg"
+ },
+ "46": {
+  "file": "c46.png",
+  "source": "Hwatu_December_Tanzaku.svg"
+ },
+ "47": {
+  "file": "c47.png",
+  "source": "Hwatu_December_Kasu.svg"
+ }
+}
