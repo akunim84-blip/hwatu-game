@@ -157,3 +157,8 @@ table.sb td,table.sb th{padding:7px 4px;border-bottom:1px solid rgba(255,255,255
   #app.game .sd-seat .hn{min-height:0}
   #app.game .actbar button{min-height:40px}
 }
+.tag.ai{background:#4ae0ff;color:#06303a}
+.plist li.ai{opacity:.95}
+.ai-add{margin-top:8px}
+.ai-add .chips-pick button{flex:none;padding:8px 10px}
+.ai-panel h3 small{font-weight:400;margin-left:4px}

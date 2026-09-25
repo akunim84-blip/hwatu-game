@@ -1,4 +1,4 @@
-/* 친구끼리 화투 - 클라이언트 (vanilla JS) */
+/* 친구끼리 화투 - 클라이언트 (vanilla JS) — AI_V1: AI 상대 지원 */
 (function () {
   const { HWATU, SEOTDA, MONTH_NAMES, typeLabel } = window.HwatuCards;
   const $app = document.getElementById('app');
@@ -23,7 +23,7 @@
   };
 
   let S = null; // 최신 서버 상태 {room, me, game}
-  let ui = { modal: null, sel: null, lastSeq: -1, create: { game: 'seotda', perPoint: 100, bonus: true }, lastTurnMine: false };
+  let ui = { modal: null, sel: null, lastSeq: -1, create: { game: 'seotda', perPoint: 100, bonus: true, level: LS.get('hw_ai_level') || 'normal', aiCount: 3 }, lastTurnMine: false };
   const socket = io({ transports: ['websocket', 'polling'] });
 
   // ---------- 유틸 ----------
@@ -325,7 +325,13 @@
         <div class="chips-pick">${[10, 50, 100, 500].map((v) => `<button data-pp="${v}" class="${c.perPoint === v ? 'sel' : ''}">${v}칩</button>`).join('')}</div>
         <input id="pp" type="number" inputmode="numeric" min="1" max="10000" value="${c.perPoint}">
         ${c.game !== 'seotda' ? `<label class="chk"><input type="checkbox" id="bonus" ${c.bonus ? 'checked' : ''}> 보너스 쌍피 2장 포함</label>` : ''}
-        <button class="btn-primary" style="width:100%;margin-top:10px" data-act="create">방 만들기</button>
+        <button class="btn-primary" style="width:100%;margin-top:10px" data-act="create">방 만들기 (친구 초대)</button>
+      </div>
+      <div class="panel ai-panel"><h3>🤖 AI와 바로 하기 <small class="muted">혼자서 ${GAME_INFO[c.game].name} 연습</small></h3>
+        <div class="muted">난이도</div>
+        <div class="chips-pick">${[['easy', '쉬움'], ['normal', '보통']].map(([k, v]) => `<button data-lv="${k}" class="${c.level === k ? 'sel' : ''}">${v}</button>`).join('')}</div>
+        ${c.game === 'seotda' ? `<div class="muted">AI 인원</div><div class="chips-pick">${[1, 2, 3, 4].map((v) => `<button data-aic="${v}" class="${c.aiCount === v ? 'sel' : ''}">${v}명</button>`).join('')}</div>` : `<div class="muted">AI ${c.game === 'matgo' ? '1명' : '2명'}과 대결</div>`}
+        <button class="btn-blue" style="width:100%;margin-top:8px;font-size:16px" data-act="solo">🤖 ${GAME_INFO[c.game].name} AI와 바로 하기</button>
       </div>
       <div class="panel"><h3>코드로 참여</h3>
         <div class="row"><input id="code" maxlength="5" placeholder="방 코드 5자리" style="text-transform:uppercase" value="${esc(urlRoom)}"><button class="btn-blue" style="flex:0 0 90px" data-act="join">참여</button></div>
@@ -351,7 +357,7 @@
 
   function playersList() {
     const r = S.room;
-    return `<ul class="plist">${r.players.map((p) => `<li><div>${esc(p.name)}${p.id === r.hostId ? '<span class="tag">방장</span>' : ''}${p.id === S.me ? '<span class="tag" style="background:#4ae0ff">나</span>' : ''}${!p.connected ? '<span class="tag off">연결끊김</span>' : ''}${isHost() && p.id !== S.me && r.status !== 'playing' ? `<button class="btn-ghost" style="padding:4px 8px;font-size:11px;margin-left:6px" data-kick="${esc(p.id)}">내보내기</button>` : ''}</div><div class="chip ${p.chips < 0 ? 'neg' : ''}">${num(p.chips)}칩</div></li>`).join('')}</ul>`;
+    return `<ul class="plist">${r.players.map((p) => `<li class="${p.ai ? 'ai' : ''}"><div>${esc(p.name)}${p.ai ? `<span class="tag ai">AI·${p.level === 'easy' ? '쉬움' : '보통'}</span>` : ''}${p.id === r.hostId ? '<span class="tag">방장</span>' : ''}${p.id === S.me ? '<span class="tag" style="background:#4ae0ff">나</span>' : ''}${!p.connected ? '<span class="tag off">연결끊김</span>' : ''}${isHost() && p.id !== S.me && r.status !== 'playing' ? `<button class="btn-ghost" style="padding:4px 8px;font-size:11px;margin-left:6px" data-kick="${esc(p.id)}" ${p.ai ? 'data-ai="1"' : ''}>${p.ai ? '빼기' : '내보내기'}</button>` : ''}</div><div class="chip ${p.chips < 0 ? 'neg' : ''}">${num(p.chips)}칩</div></li>`).join('')}</ul>`;
   }
 
   function renderLobby() {
@@ -366,7 +372,9 @@
         <div class="muted">방 코드</div>
         <button class="btn-kakao" style="width:100%;margin-top:10px;font-size:16px" data-act="share">💬 카톡으로 공유 (초대 링크)</button>
       </div>
-      <div class="panel"><h3>참가자 (${n}/${r.max}) · 필요 인원 ${need}</h3>${playersList()}</div>
+      <div class="panel"><h3>참가자 (${n}/${r.max}) · 필요 인원 ${need}</h3>${playersList()}
+        ${isHost() && n < r.max ? `<div class="row ai-add"><button class="btn-blue" data-act="addAI">🤖 AI 추가</button><div class="chips-pick" style="flex:0 0 auto;margin:0">${[['easy', '쉬움'], ['normal', '보통']].map(([k, v]) => `<button data-lv="${k}" class="${ui.create.level === k ? 'sel' : ''}">${v}</button>`).join('')}</div></div>` : ''}
+        ${isHost() && n < r.max ? '<div class="muted" style="margin-top:6px">빈 자리는 AI로 채울 수 있어요. 친구가 들어오면 AI가 자리를 비켜줍니다.</div>' : ''}</div>
       <div class="stack">
         ${isHost() ? `<button class="btn-primary" style="padding:16px;font-size:18px" data-act="start" ${enough ? '' : 'disabled'}>${enough ? '게임 시작' : `인원 부족 (${need} 필요)`}</button>` : '<div class="panel" style="text-align:center">방장이 게임을 시작하길 기다리는 중…</div>'}
         <div class="row"><button class="btn-ghost" data-act="rules">📖 규칙</button><button class="btn-ghost" data-act="board">🏆 점수판</button></div>
@@ -603,10 +611,12 @@
   }
 
   $app.addEventListener('click', async (ev) => {
-    const t = ev.target.closest('[data-kick],[data-act],[data-game],[data-pp],[data-hand],[data-choose],[data-shake],[data-flipc],[data-gs],[data-bet],[data-floor],[data-stop]');
+    const t = ev.target.closest('[data-lv],[data-aic],[data-kick],[data-act],[data-game],[data-pp],[data-hand],[data-choose],[data-shake],[data-flipc],[data-gs],[data-bet],[data-floor],[data-stop]');
     if (!t) return;
     const d = t.dataset;
     if (d.stop) return;
+    if (d.lv) { ui.create.level = d.lv; LS.set('hw_ai_level', d.lv); const n = document.getElementById('nick'); if (n) LS.set('hw_name', n.value.trim()); return render(); }
+    if (d.aic) { ui.create.aiCount = Number(d.aic); const n = document.getElementById('nick'); if (n) LS.set('hw_name', n.value.trim()); return render(); }
     if (d.game) { ui.create.game = d.game; const n = document.getElementById('nick'); if (n) LS.set('hw_name', n.value.trim()); return renderLanding(); }
     if (d.pp) { ui.create.perPoint = Number(d.pp); const n = document.getElementById('nick'); if (n) LS.set('hw_name', n.value.trim()); return renderLanding(); }
     if (d.hand != null) {
@@ -632,7 +642,7 @@
       return sendPlay(card, oc && oc.matches && oc.matches[0], d.shake === '1');
     }
     if (d.flipc != null) return emit('action', { type: 'chooseFlip', floorCard: Number(d.flipc) });
-    if (d.kick) { if (confirm('이 참가자를 내보낼까요?')) emit('kick', { pid: d.kick }); return; }
+    if (d.kick) { if (d.ai || confirm('이 참가자를 내보낼까요?')) emit('kick', { pid: d.kick }); return; }
     if (d.gs) return emit('action', { type: d.gs });
     if (d.bet) { beep(600, 0.06); return emit('action', { type: d.bet }); }
     switch (d.act) {
@@ -644,6 +654,16 @@
         if (r.ok) { LS.set('hw_room', r.code); history.replaceState(null, '', '/?room=' + r.code); }
         return;
       }
+      case 'solo': {
+        const name = getName(); if (!name) return;
+        const pp = Number(document.getElementById('pp').value) || ui.create.perPoint;
+        const bonusEl = document.getElementById('bonus');
+        const c = ui.create;
+        const r = await emit('createRoom', { game: c.game, perPoint: pp, bonus: bonusEl ? bonusEl.checked : true, pid, name, ai: true, level: c.level, aiCount: c.aiCount });
+        if (r.ok) { LS.set('hw_room', r.code); history.replaceState(null, '', '/?room=' + r.code); }
+        return;
+      }
+      case 'addAI': return emit('addAI', { level: ui.create.level });
       case 'join': return joinCode(document.getElementById('code').value);
       case 'joinUrl': return joinCode(urlRoom);
       case 'share': return share();

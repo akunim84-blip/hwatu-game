@@ -5,10 +5,13 @@ const { Server } = require('socket.io');
 const { SeotdaGame } = require('./lib/seotda');
 const { GoStopGame } = require('./lib/gostop');
 const { rngInt } = require('./lib/util');
+const AI = require('./lib/ai');
 
 const PORT = Number(process.env.PORT || 3300);
 const START_CHIPS = 10000;
 const AUTO_MS = Number(process.env.AUTO_MS || 15000); // 연결 끊긴 플레이어 자동 진행
+const AI_DELAY_SCALE = Number(process.env.AI_DELAY_SCALE || 1); // 시뮬레이션용 AI 지연 배율
+const AI_DEAL_WAIT = 2500; // 새 판 패 돌리기 애니메이션 동안 AI 대기
 const GAMES = {
   seotda: { name: '섯다', min: 2, max: 5 },
   matgo: { name: '맞고', min: 2, max: 2 },
@@ -52,7 +55,7 @@ function publicRoom(room) {
     code: room.code, game: room.game, gameName: GAMES[room.game].name, perPoint: room.perPoint, bonus: room.bonus,
     min: GAMES[room.game].min, max: GAMES[room.game].max,
     hostId: room.hostId, status: room.status, actSeq: room.actSeq, round: room.round, mult: room.mult,
-    players: room.players.map((p) => ({ id: p.id, name: p.name, chips: p.chips, connected: p.connected, wins: p.wins, playing: !!(room.engine && room.engine.seatOf(p.id) >= 0) })),
+    players: room.players.map((p) => ({ id: p.id, name: p.name, chips: p.chips, connected: p.connected, wins: p.wins, ai: !!p.ai, level: p.ai ? p.level : undefined, playing: !!(room.engine && room.engine.seatOf(p.id) >= 0) })),
     history: room.history.slice(-10),
     startChips: START_CHIPS,
   };
@@ -80,6 +83,19 @@ function scheduleAuto(room) {
   const actor = currentActorId(room);
   if (!actor) return;
   const p = room.players.find((x) => x.id === actor);
+  if (p && p.ai) {
+    // AI: 사람처럼 0.7~1.5초 생각 (새 판이면 패 돌리기 애니메이션이 끝날 때까지 추가 대기)
+    const e = room.engine;
+    let ms = 700 + Math.random() * 800;
+    if (room.actSeq === room.roundStartSeq) ms += AI_DEAL_WAIT;
+    else if (e.kind !== 'seotda' && e.phase === 'play') ms += 250; // 직전 패 내기 애니메이션
+    room.timer = setTimeout(() => {
+      room.timer = null;
+      if (currentActorId(room) !== actor || room.engine !== e) return;
+      runAI(room, p);
+    }, ms * AI_DELAY_SCALE);
+    return;
+  }
   if (p && p.connected) return;
   room.timer = setTimeout(() => {
     room.timer = null;
@@ -88,9 +104,34 @@ function scheduleAuto(room) {
   }, AUTO_MS);
 }
 
+function runAI(room, p) {
+  const e = room.engine;
+  try {
+    const a = AI.decide(e.view(p.id), { level: p.level });
+    if (!a) throw new Error('AI 결정 없음');
+    e.act(p.id, a);
+  } catch (err) {
+    // 결정이 거부되면 기본 자동 행동으로 대체 (절대 멈추지 않음)
+    try { e.autoAction(p.id); } catch (err2) { console.error('ai', err.message, err2.message); }
+  }
+  afterAction(room);
+}
+
+function addAI(room, level) {
+  const G = GAMES[room.game];
+  if (room.players.length >= G.max) throw new Error('빈 자리가 없습니다');
+  const used = new Set(room.players.map((x) => x.name));
+  const base = AI.AI_NAMES.find((n) => !used.has('🤖 ' + n)) || 'AI봇';
+  const p = { id: 'ai-' + Math.random().toString(36).slice(2, 10), name: '🤖 ' + base, chips: START_CHIPS, connected: true, sockets: new Set(), wins: 0, ai: true, level: level === 'easy' ? 'easy' : 'normal' };
+  room.players.push(p);
+  return p;
+}
+const humans = (room) => room.players.filter((x) => !x.ai);
+
 function afterAction(room) {
   room.actSeq++;
   const e = room.engine;
+  if (e && e.kind === 'seotda' && e.redeals !== room.seenRedeals) { room.seenRedeals = e.redeals; room.roundStartSeq = room.actSeq; } // 재경기: 다시 패 돌림
   if (e && e.over && room.status === 'playing') {
     const r = e.result;
     for (const [pid, d] of Object.entries(r.chipDelta)) {
@@ -124,6 +165,8 @@ function startRound(room) {
   }
   room.status = 'playing';
   room.actSeq++;
+  room.roundStartSeq = room.actSeq;
+  room.seenRedeals = 0;
 }
 
 io.on('connection', (socket) => {
@@ -134,6 +177,11 @@ io.on('connection', (socket) => {
   function attach(room, pid, name) {
     let p = room.players.find((x) => x.id === pid);
     if (!p) {
+      if (room.players.length >= GAMES[room.game].max && room.status !== 'playing') {
+        // 사람이 들어오면 AI 한 명이 자리를 비켜줌
+        const bot = room.players.slice().reverse().find((x) => x.ai);
+        if (bot) { room.players = room.players.filter((x) => x !== bot); if (room.status === 'result') { room.status = 'lobby'; room.engine = null; } }
+      }
       if (room.players.length >= GAMES[room.game].max) throw new Error('방이 가득 찼습니다');
       if (room.status !== 'lobby' && room.game !== 'seotda') throw new Error('이미 게임이 진행 중입니다');
       p = { id: pid, name: cleanName(name), chips: START_CHIPS, connected: true, sockets: new Set(), wins: 0 };
@@ -167,6 +215,13 @@ io.on('connection', (socket) => {
       const room = createRoom(game, perPoint, d.bonus);
       attach(room, String(d.pid), d.name);
       room.hostId = String(d.pid);
+      if (d.ai) {
+        // 'AI와 바로 하기': AI로 자리를 채우고 바로 시작
+        const n = game === 'seotda' ? Math.max(1, Math.min(4, Math.floor(Number(d.aiCount) || 3))) : GAMES[game].min - 1;
+        for (let k = 0; k < n; k++) addAI(room, d.level);
+        room.solo = true;
+        startRound(room);
+      }
       ok(cb, { code: room.code });
       broadcast(room);
     } catch (e) { fail(cb, e.message); }
@@ -202,6 +257,17 @@ io.on('connection', (socket) => {
       room.engine.act(player.id, a || {});
       ok(cb);
       afterAction(room);
+    } catch (e) { fail(cb, e.message); }
+  });
+  socket.on('addAI', (d, cb) => {
+    try {
+      if (!cur) throw new Error('방에 없습니다');
+      const { room, player } = cur;
+      if (room.hostId !== player.id) throw new Error('방장만 AI를 추가할 수 있습니다');
+      if (room.status === 'playing') throw new Error('게임 중에는 추가할 수 없습니다');
+      addAI(room, d && d.level);
+      if (room.status === 'result') { room.status = 'lobby'; room.engine = null; }
+      ok(cb); broadcast(room);
     } catch (e) { fail(cb, e.message); }
   });
   socket.on('resetChips', (d, cb) => {
@@ -252,11 +318,14 @@ io.on('connection', (socket) => {
       room.players = room.players.filter((x) => x !== player);
     } else if (player.sockets.size === 0) player.connected = false;
     if (room.hostId === player.id) {
-      const nh = room.players.find((x) => x.connected && x !== player) || room.players.find((x) => x !== player);
+      const nh = room.players.find((x) => !x.ai && x.connected && x !== player) || room.players.find((x) => !x.ai && x !== player);
       if (nh) room.hostId = nh.id;
     }
-    if (room.players.length === 0) rooms.delete(room.code);
-    else broadcast(room);
+    if (humans(room).length === 0 || (room.solo && !humans(room).some((x) => x.connected))) {
+      // 사람이 아무도 없으면 방 정리 (AI끼리 계속 돌지 않게)
+      if (room.timer) { clearTimeout(room.timer); room.timer = null; }
+      rooms.delete(room.code);
+    } else broadcast(room);
     ok(cb);
   });
   socket.on('disconnect', () => detach());
@@ -266,7 +335,9 @@ io.on('connection', (socket) => {
 setInterval(() => {
   const now = Date.now();
   for (const [code, r] of rooms) {
-    if (now - r.lastActive > 6 * 3600 * 1000 && !r.players.some((p) => p.connected)) rooms.delete(code);
+    const idle = now - r.lastActive;
+    const nobody = !r.players.some((p) => p.connected && !p.ai);
+    if (nobody && (idle > 6 * 3600 * 1000 || (r.solo && idle > 3600 * 1000))) { if (r.timer) clearTimeout(r.timer); rooms.delete(code); }
   }
 }, 10 * 60 * 1000).unref();
 

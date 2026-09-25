@@ -51,16 +51,21 @@ function decide(g) {
 }
 
 async function runRoom(game, nPlayers, rounds, label, opts = {}) {
-  const bots = Array.from({ length: nPlayers }, (_, i) => bot(`${label}${i}`, URL));
+  const nAI = opts.ai || 0;
+  const bots = Array.from({ length: nPlayers - nAI }, (_, i) => bot(`${label}${i}`, URL));
   for (const b of bots) await b.connect();
   const host = bots[0];
   const cr = await host.emit('createRoom', { game, perPoint: 10 + Math.floor(Math.random() * 90), pid: host.pid, name: host.name, bonus: opts.bonus !== false });
   if (!cr.ok) throw new Error('create failed ' + cr.error);
   const code = cr.code;
   for (const b of bots.slice(1)) { const r = await b.emit('joinRoom', { code, pid: b.pid, name: b.name }); if (!r.ok) throw new Error('join ' + r.error); }
+  for (let k = 0; k < nAI; k++) { const r = await host.emit('addAI', { level: k % 2 ? 'easy' : 'normal' }); if (!r.ok) throw new Error('addAI ' + r.error); }
   // 잘못된 요청 검증
-  const bad = await bots[1].emit('start');
-  if (bad.ok) throw new Error('non-host start should fail');
+  if (bots[1]) {
+    const bad = await bots[1].emit('start');
+    if (bad.ok) throw new Error('non-host start should fail');
+    if (nAI) { const bad2 = await bots[1].emit('addAI', {}); if (bad2.ok) throw new Error('non-host addAI should fail'); }
+  }
   const stats = { rounds: 0, results: {}, reconnects: 0, conservationFail: 0, invalidRejected: 0, chipSnapshots: [] };
   let lastProgress = Date.now();
   let lastSeqSeen = -1;
@@ -85,7 +90,9 @@ async function runRoom(game, nPlayers, rounds, label, opts = {}) {
         const dsum = Object.values(res.chipDelta).reduce((a, x) => a + x, 0);
         if (dsum !== 0) stats.conservationFail++;
         if (stats.rounds >= rounds) { done = true; resolveDone(); return; }
-        setImmediate(() => host.emit('start').then((x) => { if (!x.ok) console.error(label, 'start err', x.error); }));
+        // (혼자+AI 방에서는 방장이 재접속 중일 수 있으므로 타임아웃이면 재시도)
+        const startRetry = (k) => host.emit('start').then((x) => { if (!x.ok && x.timeout && k < 10) setTimeout(() => startRetry(k + 1), 100); else if (!x.ok && !/진행 중/.test(x.error)) console.error(label, 'start err', x.error); });
+        setImmediate(() => startRetry(0));
         return;
       }
       if (!g || g.result || r.actSeq === b.lastSeq) return;
@@ -94,7 +101,7 @@ async function runRoom(game, nPlayers, rounds, label, opts = {}) {
       b.lastSeq = r.actSeq;
       setImmediate(async () => {
         // 가끔 차례가 아닌 봇이 끼어들기 시도 → 거부되어야 함
-        const other = bots.find((x) => x !== b);
+        const other = bots.find((x) => x !== b) || b;
         const eng = ROOMS && ROOMS.get(code) && ROOMS.get(code).engine;
         const actorId = eng && !eng.over ? (eng.kind === 'seotda' ? eng.seats[eng.turn] : eng.players[eng.turn]) : null;
         if (Math.random() < 0.02 && actorId && actorId.id !== other.pid && other.sock.connected) {
@@ -119,7 +126,7 @@ async function runRoom(game, nPlayers, rounds, label, opts = {}) {
   const reconnTimer = setInterval(async () => {
     if (done || opts.abandon || reconnecting) return;
     reconnecting = true;
-    const b = rnd(bots.slice(1));
+    const b = rnd(bots.length > 1 ? bots.slice(1) : bots);
     b.sock.disconnect();
     await new Promise((r) => setTimeout(r, 20));
     await b.connect();
@@ -146,6 +153,7 @@ async function runRoom(game, nPlayers, rounds, label, opts = {}) {
   let srv;
   if (!URL) {
     process.env.AUTO_MS = '100';
+    process.env.AI_DELAY_SCALE = '0.005';
     const { server, rooms } = require('../server');
     ROOMS = rooms;
     await new Promise((r) => server.listen(0, r));
@@ -163,6 +171,11 @@ async function runRoom(game, nPlayers, rounds, label, opts = {}) {
     ['맞고 (보너스X)', runRoom('matgo', 2, ROUNDS / 2, 'mgx', { bonus: false })],
     ['고스톱 (보너스O)', runRoom('gostop', 3, ROUNDS / 2, 'gs')],
     ['고스톱 (보너스X)', runRoom('gostop', 3, ROUNDS / 2, 'gsx', { bonus: false })],
+    ['AI 섯다 (혼자 + AI 4)', runRoom('seotda', 5, 30, 'ai5', { ai: 4 })],
+    ['AI 맞고 (혼자 + AI 1)', runRoom('matgo', 2, 30, 'aim', { ai: 1 })],
+    ['AI 고스톱 (혼자 + AI 2)', runRoom('gostop', 3, 30, 'aig', { ai: 2 })],
+    ['AI 고스톱 (친구 2 + AI 1)', runRoom('gostop', 3, 30, 'aig2', { ai: 1 })],
+    ['AI 섯다 (친구 2 + AI 1)', runRoom('seotda', 3, 30, 'ais3', { ai: 1 })],
     ['이탈자 자동진행 고스톱', runRoom('gostop', 3, 3, 'ab', { abandon: true })],
     ['이탈자 자동진행 섯다', runRoom('seotda', 4, 5, 'abs', { abandon: true })],
   ];
