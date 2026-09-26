@@ -47,6 +47,15 @@ test('로그인: 맞는 PIN이면 같은 계정, 토큰으로 자동 로그인, 
   assert.strictEqual(await B.byToken(r1.token), null);
 });
 
+test('PIN 5번 틀리면 잠시 잠금 (맞는 PIN도 거부)', async () => {
+  const A = fresh('lock');
+  await A.enter('잠금이', '1111');
+  for (let i = 0; i < 5; i++) await assert.rejects(A.enter('잠금이', '2222'), /PIN이 맞지 않습니다/);
+  await assert.rejects(A.enter('잠금이', '1111'), /5분 뒤/);
+  A.fails.get('잠금이').until = Date.now() - 1; // 시간 경과
+  assert.strictEqual((await A.enter('잠금이', '1111')).created, false);
+});
+
 test('파산: 0원 이하 → 300,000원으로 다시 시작, 파산 횟수 기록·저장', async () => {
   const A = fresh('bankrupt');
   await A.enter('철수', '4321');
