@@ -216,6 +216,23 @@ function rig(e, spec) {
     s.close(); await p.close();
   }
 
+  // ---- 6) 작은 화면/가로 화면에서 선 정하기·도장 ----
+  for (const [w, h, nm] of [[360, 640, '작은폰'], [844, 390, '가로폰']]) {
+    const p = await newPage('small-' + w, w, h);
+    await p.goto(BASE, { waitUntil: 'networkidle0' });
+    await login(p, nm);
+    await tap(p, '[data-game="matgo"]');
+    await tap(p, '[data-act="solo"]');
+    await p.waitForSelector('.seon', { timeout: 5000 });
+    await sleep(1600);
+    report['seonBox' + w] = await p.evaluate(() => { const b = document.querySelector('.seon-box').getBoundingClientRect(); return b.left >= 0 && b.top >= 0 && b.right <= innerWidth && b.bottom <= innerHeight; });
+    await shot(p, `start-seon-${w}x${h}`);
+    await p.waitForSelector('.stamp.s-start', { timeout: 4000 }); await sleep(250);
+    report['stampBox' + w] = await p.evaluate(() => { const b = document.querySelector('.stamp .st-txt').getBoundingClientRect(); return b.left >= 0 && b.right <= innerWidth; });
+    await shot(p, `start-stamp-${w}x${h}`);
+    await p.close();
+  }
+
   await browser.close();
   console.log(JSON.stringify(report, null, 1));
   console.log('ERRORS:', errors.length ? errors : 'none');

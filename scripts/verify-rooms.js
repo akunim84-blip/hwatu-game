@@ -1,7 +1,7 @@
 // 진행 중인 방 목록 · 관전 · AI 자리 넘겨받기 헤드리스 검증 + 스크린샷
 // 사용법: node scripts/verify-rooms.js   (서버를 이 프로세스 안에서 띄움)
 process.env.AI_DELAY_SCALE = process.env.AI_DELAY_SCALE || '0.3';
-if (!process.env.ACCOUNTS_FILE) process.env.ACCOUNTS_FILE = require('path').join(require('os').tmpdir(), 'hwatu-verify-accounts.json');
+if (!process.env.ACCOUNTS_FILE) process.env.ACCOUNTS_FILE = require('path').join(require('os').tmpdir(), 'hwatu-verify-' + require('path').basename(__filename, '.js') + '-' + Date.now() + '.json');
 const puppeteer = require('puppeteer-core');
 const { login, authAs, pidOf } = require('./_login');
 const { io } = require('socket.io-client');

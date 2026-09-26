@@ -1,7 +1,7 @@
 // 판 끝 결과 화면(RESULT_V2) · 같은 달 짝 강조(MATCH_V2) · 새 로고 헤드리스 검증 + 스크린샷
 // 사용법: node scripts/verify-result.js   (서버를 이 프로세스 안에서 띄우고, 판 상태를 직접 구성 — 테스트 전용)
 process.env.AI_DELAY_SCALE = process.env.AI_DELAY_SCALE || '1';
-if (!process.env.ACCOUNTS_FILE) process.env.ACCOUNTS_FILE = require('path').join(require('os').tmpdir(), 'hwatu-verify-accounts.json');
+if (!process.env.ACCOUNTS_FILE) process.env.ACCOUNTS_FILE = require('path').join(require('os').tmpdir(), 'hwatu-verify-' + require('path').basename(__filename, '.js') + '-' + Date.now() + '.json');
 const puppeteer = require('puppeteer-core');
 const { login, authAs, pidOf } = require('./_login');
 const { io } = require('socket.io-client');
