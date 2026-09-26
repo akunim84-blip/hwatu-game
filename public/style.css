@@ -286,3 +286,16 @@ ol.rank .rm{flex:none;font-weight:800;color:#ffcf4a}
 .turnbar.res-bar{background:#2a1f00;color:#ffcf4a}
 @media (max-height:680px){.res-emoji{font-size:26px}.res-head{padding:8px 10px 6px}.res-head h2{font-size:22px}.res-my{font-size:19px;margin-top:3px}.res-body{gap:6px;padding:4px 10px}.res-sec{padding:6px 8px}.res-btns button{padding:10px 6px}.rs-hand{font-size:15px}}
 @media (max-height:460px){.res-card{max-width:760px}.res-head{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;padding:6px 10px}.res-head h2{margin:0;font-size:20px}.res-emoji{font-size:22px}.res-my{margin:0;font-size:17px}.res-body{flex-direction:row;flex-wrap:wrap;align-items:flex-start}.res-body>.res-sec{flex:1 1 45%;min-width:0}.res-note{display:none}.res-btns{padding:6px 10px}.res-btns button{padding:8px 6px;font-size:15px}.res-wait{display:none}.card.xs{width:22px;height:36px}}
+/* 초대 링크 · 이름만으로 입장 (INVITE_V2) */
+.panel.invite{text-align:center;border:2px solid #ffcf4a;background:rgba(255,207,74,.12)}
+.panel.invite.miss{border-color:#ff8a80;background:rgba(255,138,128,.1)}
+.inv-t{font-size:20px;font-weight:900;color:#ffcf4a}
+.inv-room{font-size:17px;margin:4px 0 2px}
+.inv-g{font-weight:900}
+.inv-code{display:inline-block;padding:1px 8px;border-radius:6px;background:rgba(0,0,0,.3);letter-spacing:2px;font-weight:800}
+.inv-hint{margin-top:6px;font-size:13px;color:#ffe08a}
+.login-msg{margin-top:8px;padding:8px 10px;border-radius:8px;font-size:14px;line-height:1.4}
+.login-msg.err{background:rgba(255,82,82,.18);color:#ffd2cc}
+.login-msg.info{background:rgba(74,224,255,.14);color:#cff6ff}
+a.lnk{color:#ffcf4a;text-decoration:underline}
+.acct .acct-row>span:last-child{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}

@@ -297,7 +297,7 @@ function startRound(room) {
 
 io.on('connection', (socket) => {
   let cur = null; // {room, player}
-  const fail = (cb, msg) => { if (typeof cb === 'function') cb({ ok: false, error: msg }); else socket.emit('err', msg); };
+  const fail = (cb, msg, code) => { if (typeof cb === 'function') cb({ ok: false, error: msg, code }); else socket.emit('err', msg); };
   const ok = (cb, data) => { if (typeof cb === 'function') cb(Object.assign({ ok: true }, data)); };
 
   // 로그인한 계정이면 계정 기준 id/닉네임, 아니면 손님(테스트·시뮬레이션용)
@@ -475,16 +475,35 @@ io.on('connection', (socket) => {
       d = d || {};
       const now = Date.now();
       if (now - pinTries.t > 60000) { pinTries.n = 0; pinTries.t = now; }
-      if (++pinTries.n > 8) throw new Error('잠시 후 다시 시도하세요');
+      if (++pinTries.n > 12) throw new Error('잠시 후 다시 시도하세요');
       const r = await accounts.enter(d.nickname, d.pin);
       bindAcct({ key: r.key });
       ok(cb, { token: r.token, account: r.account, created: r.created });
-    } catch (e) { fail(cb, e.message); }
+    } catch (e) { fail(cb, e.message, e.code); }
+  });
+  // PIN 설정/변경: 로그인한 기기에서만 (다른 기기에서도 이 이름을 쓰려면)
+  socket.on('setPin', async (d, cb) => {
+    try {
+      d = d || {};
+      if (!socket.data.acct) throw new Error('먼저 입장하세요');
+      const now = Date.now();
+      if (now - pinTries.t > 60000) { pinTries.n = 0; pinTries.t = now; }
+      if (++pinTries.n > 12) throw new Error('잠시 후 다시 시도하세요');
+      const acct = await accounts.setPin(socket.data.acct, d.pin, d.currentPin);
+      io.to('acct:' + socket.data.acct).emit('me', acct);
+      ok(cb, { account: acct });
+    } catch (e) { fail(cb, e.message, e.code); }
+  });
+  // 초대 링크용 방 정보 (공개 정보만: 게임 종류·방장 이름·상태)
+  socket.on('roomInfo', (d, cb) => {
+    const room = rooms.get(String((d && d.code) || '').toUpperCase().trim());
+    if (!room) return fail(cb, '방을 찾을 수 없어요. 방이 끝났을 수 있어요', 'NO_ROOM');
+    ok(cb, { room: roomListItem(room) });
   });
   socket.on('auth', async (d, cb) => {
     try {
       const a = await accounts.byToken(d && d.token);
-      if (!a) throw new Error('다시 로그인해 주세요');
+      if (!a) throw new Error('다시 입장해 주세요');
       bindAcct(a);
       ok(cb, { account: accounts.pub(a) });
     } catch (e) { fail(cb, e.message); }

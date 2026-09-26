@@ -28,27 +28,44 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const tap = async (p, sel) => { await p.waitForSelector(sel, { timeout: 10000 }); await p.$eval(sel, (el) => el.click()); };
   const fits = (p) => p.evaluate(() => { const se = document.scrollingElement, app = document.getElementById('app'); return Math.max(se.scrollHeight, app.scrollHeight) <= innerHeight && se.scrollWidth <= innerWidth; });
 
-  // 0) 첫 화면 로그인 (닉네임 + PIN)
+  // 0) 첫 화면: 이름만으로 입장 (기기 기억) → PIN 설정 → 다른 기기에서는 PIN 필요
+  const NEW = '손님' + String(Date.now() % 100000);
   const L = await newPage('L');
   await L.goto(BASE, { waitUntil: 'networkidle0' });
-  await L.waitForSelector('#pin');
-  await L.$eval('#nick', (el) => { el.value = '새친구'; });
+  await L.waitForSelector('#nick');
+  report.loginNoPinField = !(await L.$('#pin'));
+  await L.$eval('#nick', (el, v) => { el.value = v; }, NEW);
   await shot(L, 'login');
   report.loginFits = await fits(L);
-  await login(L, '새친구', '4455');
-  report.newAccount = await L.evaluate(() => ({ money: document.querySelector('.mymoney').innerText, token: !!localStorage.getItem('hw_token'), notice: document.querySelector('.notice').innerText.split('\n')[0], rank: !!document.getElementById('rank-list') }));
-  // 새로고침 → 토큰으로 자동 로그인 (PIN 다시 안 물어봄)
+  await L.$eval('[data-act="enter"]', (el) => el.click());
+  await L.waitForSelector('[data-act="solo"]', { timeout: 5000 });
+  report.newAccount = await L.evaluate(() => ({ money: document.querySelector('.mymoney').innerText, token: (localStorage.getItem('hw_token') || '').length, notice: document.querySelector('.notice').innerText.split('\n')[0], rank: !!document.getElementById('rank-list'), pinHint: document.querySelector('.acct').innerText.includes('PIN 설정') }));
+  // 새로고침 → 기기 토큰으로 자동 입장 (이름도 PIN도 안 물어봄)
   await L.reload({ waitUntil: 'networkidle0' });
   await L.waitForSelector('[data-act="solo"]', { timeout: 5000 });
   report.autoLogin = await L.evaluate(() => document.querySelector('.acct').innerText.replace(/\s+/g, ' '));
-  // 틀린 PIN
+  // 다른 기기: PIN 없는 이름 → '이미 쓰는 이름'
   const W = await newPage('W');
   await W.goto(BASE, { waitUntil: 'networkidle0' });
-  await W.waitForSelector('#pin');
-  await W.$eval('#nick', (el) => { el.value = '새친구'; }); await W.$eval('#pin', (el) => { el.value = '0000'; });
-  await W.$eval('[data-act="enter"]', (el) => el.click());
-  await sleep(600);
-  report.wrongPin = await W.evaluate(() => ({ stillLogin: !!document.getElementById('pin'), toast: [...document.querySelectorAll('.toast')].map((t) => t.textContent).join('|') }));
+  await W.waitForSelector('#nick');
+  const tryName = async (name, pin) => { await W.$eval('#nick', (el, v) => { el.value = v; }, name); if (pin != null) await W.$eval('#pin', (el, v) => { el.value = v; }, pin); await W.$eval('[data-act="enter"]', (el) => el.click()); await sleep(500); return W.evaluate(() => ({ msg: (document.querySelector('.login-msg') || {}).innerText || '', pinField: !!document.getElementById('pin'), inside: !!document.querySelector('[data-act="solo"]') })); };
+  report.takenNoPin = await tryName(NEW);
+  // 원래 기기에서 PIN 설정
+  await L.$eval('[data-act="pinForm"]', (el) => el.click());
+  await L.waitForSelector('#pin-new');
+  await L.$eval('#pin-new', (el) => { el.value = '4455'; });
+  await L.$eval('[data-act="savePin"]', (el) => el.click());
+  await sleep(500);
+  report.pinSet = await L.evaluate(() => document.querySelector('.acct').innerText.includes('PIN 변경'));
+  report.needPin = await tryName(NEW);
+  report.wrongPin = await tryName(NEW, '0000');
+  report.rightPin = await tryName(NEW, '4455');
+  report.sameMoneyOtherDevice = await W.evaluate(() => (document.querySelector('.mymoney') || {}).innerText);
+  // 로그아웃해도 마지막 이름은 미리 채워짐
+  W.on('dialog', (d) => d.accept());
+  await W.$eval('[data-act="logout"]', (el) => el.click());
+  await W.waitForSelector('#nick');
+  report.namePrefilledAfterLogout = await W.$eval('#nick', (el) => el.value);
   await W.close(); await L.close();
 
   // 1) 방장 A: 맞고 AI와 바로 하기 (공개)
@@ -71,6 +88,28 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await shot(F, 'lobby-money');
   report.lobbyMoney = await F.evaluate(() => ({ mine: document.querySelector('.mymoney').innerText, players: [...document.querySelectorAll('.plist li')].map((e) => e.innerText.replace(/\s+/g, ' ')), stake: document.querySelector('.panel .muted').innerText }));
   report.lobbyFits = await fits(F);
+  // 초대 링크로 온 새 사람: 방 코드 입력 없이 이름만 쓰면 바로 그 방으로
+  {
+    const fcode = await F.evaluate(() => localStorage.getItem('hw_room'));
+    const I = await newPage('I');
+    I.on('dialog', (d) => d.accept());
+    await I.goto(BASE + '/?room=' + fcode, { waitUntil: 'networkidle0' });
+    await I.waitForSelector('.panel.invite .inv-code', { timeout: 5000 });
+    await I.$eval('#nick', (el) => { el.value = '초대손님' + String(Date.now() % 1000); });
+    await shot(I, 'invite-join');
+    report.invite = await I.evaluate(() => ({ text: document.querySelector('.panel.invite').innerText.replace(/\s+/g, ' '), codeInput: !!document.getElementById('code'), pinField: !!document.getElementById('pin') }));
+    report.inviteFits = await fits(I);
+    await I.$eval('[data-act="enter"]', (el) => el.click());
+    await I.waitForSelector('.hdr', { timeout: 5000 });
+    report.inviteJoined = await I.evaluate((c) => ({ inRoom: document.querySelector('.hdr').innerText.includes(c), players: [...document.querySelectorAll('.plist li')].length }), fcode);
+    // 새로고침해도 같은 방으로 자동 복귀
+    await I.reload({ waitUntil: 'networkidle0' });
+    await I.waitForSelector('.hdr', { timeout: 5000 });
+    report.inviteReload = await I.evaluate((c) => document.querySelector('.hdr').innerText.includes(c), fcode);
+    await I.$eval('[data-act="leave"]', (el) => el.click());
+    await I.waitForSelector('[data-act="solo"]', { timeout: 5000 });
+    await I.close();
+  }
 
   // 2) 손님 B: 첫 화면에 진행 중인 방 목록 (실시간)
   const B = await newPage('B');
@@ -144,7 +183,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const C = await newPage('C');
   await C.goto(BASE + '/?room=' + code, { waitUntil: 'networkidle0' });
   await login(C, '철수');
-  await tap(C, '[data-act="joinUrl"]');
   await C.waitForSelector('.turnbar.spec', { timeout: 5000 });
   report.watchOnly = await C.evaluate(() => ({ bar: document.querySelector('.turnbar.spec').innerText, hand: document.querySelectorAll('[data-hand]').length }));
   await tap(C, '.actbar [data-act="leave"]');

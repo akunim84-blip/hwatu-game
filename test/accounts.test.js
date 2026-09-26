@@ -33,7 +33,7 @@ test('로그인: 맞는 PIN이면 같은 계정, 토큰으로 자동 로그인, 
   const r1 = await A.enter('영희', '0000');
   await assert.rejects(A.enter('영희', '1111'), /PIN이 맞지 않습니다/);
   await assert.rejects(A.enter('영희', '12a4'), /4자리/);
-  await assert.rejects(A.enter('', '1234'), /닉네임/);
+  await assert.rejects(A.enter('', '1234'), /이름/);
   const r2 = await A.enter('영희', '0000');
   assert.strictEqual(r2.created, false);
   // 다른 프로세스(재시작)에서도 토큰·PIN 유지
@@ -193,4 +193,91 @@ test('Postgres 백엔드 (pg-mem): 테이블 생성·가입·로그인·정산·
   assert.strictEqual((await B.top(10))[0].nickname, '박사장');
   const cols = db.public.many("SELECT column_name FROM information_schema.columns WHERE table_name='hwatu_accounts'").map((x) => x.column_name);
   for (const c of ['nickname', 'pin_hash', 'balance', 'bankrupt_count', 'updated_at']) assert.ok(cols.includes(c), c);
+});
+
+test('이름만으로 입장: PIN 없이 계정 생성·기기 토큰, 같은 이름은 남이 못 씀, PIN 설정 후 다른 기기에서 PIN으로', async () => {
+  const A = fresh('nameonly');
+  const r = await A.enter('다은');
+  assert.strictEqual(r.created, true);
+  assert.strictEqual(r.account.hasPin, false);
+  assert.ok(r.token.length >= 40, '긴 무작위 기기 토큰');
+  assert.strictEqual((await A.byToken(r.token)).nickname, '다은');
+  // 다른 사람이 같은 이름만 치면 → 이미 쓰는 이름 (돈을 가져갈 수 없음)
+  await assert.rejects(A.enter('다은'), (e) => e.code === 'TAKEN' && /이미/.test(e.message));
+  await assert.rejects(A.enter('다은', '1234'), (e) => e.code === 'TAKEN', 'PIN 없는 계정은 아무 PIN으로도 못 들어감');
+  await assert.rejects(A.enter(' 다은 '), (e) => e.code === 'TAKEN', '공백 붙여도 같은 이름');
+  // PIN 설정 (기기에서)
+  const a = await A.byToken(r.token);
+  await assert.rejects(A.setPin(a.key, '12'), /4자리/);
+  const pub = await A.setPin(a.key, '2468');
+  assert.strictEqual(pub.hasPin, true);
+  await assert.rejects(A.enter('다은'), (e) => e.code === 'NEED_PIN');
+  await assert.rejects(A.enter('다은', '1111'), (e) => e.code === 'BAD_PIN');
+  const r2 = await A.enter('다은', '2468');
+  assert.strictEqual(r2.created, false);
+  assert.notStrictEqual(r2.token, r.token);
+  assert.strictEqual((await A.byToken(r.token)).nickname, '다은', '원래 기기 토큰도 계속 유효');
+  // PIN 변경은 지금 PIN 필요
+  await assert.rejects(A.setPin(a.key, '1357', '0000'), (e) => e.code === 'BAD_PIN');
+  await A.setPin(a.key, '1357', '2468');
+  await A.idle();
+  const B = fresh('nameonly'); // 재시작 후에도 유지
+  await assert.rejects(B.enter('다은', '2468'), (e) => e.code === 'BAD_PIN');
+  assert.strictEqual((await B.enter('다은', '1357')).account.nickname, '다은');
+  // 기존 PIN 계정(예전 방식)도 그대로
+  const old = await B.enter('옛날사람', '9090');
+  assert.strictEqual(old.account.hasPin, true);
+  await assert.rejects(B.enter('옛날사람'), (e) => e.code === 'NEED_PIN');
+  const raw = fs.readFileSync(path.join(TMP, 'nameonly.json'), 'utf8');
+  assert.ok(!raw.includes(r.token) && !raw.includes(r2.token), '토큰 평문 저장 금지');
+});
+
+test('서버: 이름만으로 입장 → 초대 방 정보 → 방 코드로 바로 참여, 남의 이름은 거부', async () => {
+  const H = client();
+  const e1 = await H.emit('enter', { nickname: '방장님' });
+  assert.ok(e1.ok); assert.strictEqual(e1.account.hasPin, false);
+  const cr = await H.emit('createRoom', { game: 'gostop' });
+  const info = await H.emit('roomInfo', { code: cr.code.toLowerCase() });
+  assert.ok(info.ok); assert.strictEqual(info.room.host, '방장님'); assert.strictEqual(info.room.gameName, '고스톱');
+  const miss = await H.emit('roomInfo', { code: 'ZZZZZ' });
+  assert.strictEqual(miss.code, 'NO_ROOM');
+  const G = client();
+  const bad = await G.emit('enter', { nickname: '방장님' });
+  assert.strictEqual(bad.ok, false); assert.strictEqual(bad.code, 'TAKEN');
+  const e2 = await G.emit('enter', { nickname: '초대손님' });
+  assert.ok(e2.ok);
+  const j = await G.emit('joinRoom', { code: cr.code });
+  assert.ok(j.ok);
+  const st = await G.until((s) => s.room.players.some((p) => p.id === 'u:초대손님'));
+  assert.ok(st);
+  const sp = await G.emit('setPin', { pin: '5555' });
+  assert.ok(sp.ok); assert.strictEqual(sp.account.hasPin, true);
+  const sp2 = await G.emit('setPin', { pin: '6666', currentPin: '1111' });
+  assert.strictEqual(sp2.ok, false); assert.strictEqual(sp2.code, 'BAD_PIN');
+  const N = client();
+  const np = await N.emit('setPin', { pin: '5555' });
+  assert.strictEqual(np.ok, false, '입장 안 한 소켓은 PIN 설정 불가');
+  [H, G, N].forEach((c) => c.s.close());
+});
+
+test('Postgres 마이그레이션: 예전 테이블(pin_hash NOT NULL)에서도 이름만 계정 생성', async () => {
+  let newDb;
+  try { ({ newDb } = require('pg-mem')); } catch (e) { return; }
+  const db = newDb();
+  db.public.none(`CREATE TABLE hwatu_accounts (nick_key TEXT PRIMARY KEY, nickname TEXT UNIQUE NOT NULL, pin_hash TEXT NOT NULL, balance BIGINT NOT NULL DEFAULT 1000000, bankrupt_count INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+    CREATE TABLE hwatu_tokens (token_hash TEXT PRIMARY KEY, nick_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());`);
+  const { Pool } = db.adapters.createPg();
+  const A = new Accounts({ databaseUrl: 'postgres://u:p@db.example.com/x', Pool });
+  await A.ready;
+  assert.strictEqual(A.kind, 'postgres');
+  const r = await A.enter('새이름');
+  assert.strictEqual(r.account.hasPin, false);
+  const B = new Accounts({ databaseUrl: 'postgres://u:p@db.example.com/x', Pool });
+  await B.ready;
+  assert.strictEqual((await B.byToken(r.token)).nickname, '새이름');
+  await assert.rejects(B.enter('새이름'), (e) => e.code === 'TAKEN');
+  await B.setPin('새이름', '8080');
+  const C = new Accounts({ databaseUrl: 'postgres://u:p@db.example.com/x', Pool });
+  await C.ready;
+  assert.strictEqual((await C.enter('새이름', '8080')).created, false);
 });

@@ -1,4 +1,4 @@
-/* 친구끼리 화투 - 클라이언트 (vanilla JS) — AI_V1: AI 상대 지원 · MATGO_V2: 셔플/한 장씩 돌리기 + 족보 힌트 · CAPTURE_V1: 먹기/피 뺏기 애니메이션 · ROOMS_V1: 진행 중인 방 목록/관전/AI 자리 넘겨받기 · WON_V1: 가상 머니(원)·계정(닉네임+PIN)·순위 · RESULT_V2: 판 끝 결과 화면(마지막 판 잠깐 보여준 뒤 크게, '확인' 전까지 유지) · MATCH_V2: 같은 달 짝 강조 */
+/* 친구끼리 화투 - 클라이언트 (vanilla JS) — AI_V1: AI 상대 지원 · MATGO_V2: 셔플/한 장씩 돌리기 + 족보 힌트 · CAPTURE_V1: 먹기/피 뺏기 애니메이션 · ROOMS_V1: 진행 중인 방 목록/관전/AI 자리 넘겨받기 · WON_V1: 가상 머니(원)·계정(닉네임+PIN)·순위 · RESULT_V2: 판 끝 결과 화면(마지막 판 잠깐 보여준 뒤 크게, '확인' 전까지 유지) · MATCH_V2: 같은 달 짝 강조 · INVITE_V2: 초대 링크 바로 입장 + 이름만으로 입장(기기 기억, PIN 선택) */
 (function () {
   const { HWATU, SEOTDA, MONTH_NAMES, typeLabel } = window.HwatuCards;
   const H = window.HwatuHints;
@@ -11,7 +11,7 @@
   let pid = LS.get('hw_pid');
   if (!pid) { pid = 'p' + Math.random().toString(36).slice(2) + Date.now().toString(36); LS.set('hw_pid', pid); }
   const params = new URLSearchParams(location.search);
-  const urlRoom = (params.get('room') || '').toUpperCase();
+  let urlRoom = (params.get('room') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8); // 초대 링크 ?room=코드 → 코드 입력 없이 바로 입장
 
   const MC = ['#999', '#2e7d32', '#c2185b', '#e0457b', '#37474f', '#5e35b1', '#ad1457', '#b71c1c', '#263238', '#d49b00', '#d84315', '#6d4c41', '#1565c0'];
   const FLOWER = ['★', '🌲', '🌺', '🌸', '🌿', '🪻', '🌹', '🍂', '🌕', '🌼', '🍁', '🌳', '☔'];
@@ -80,15 +80,28 @@
       if (!S) render();
       loadRanking();
     }
-    if (!ui.acct) { LS.del('hw_room'); return; }
-    const code = LS.get('hw_room');
-    if (code && urlRoom && urlRoom !== code && !S) { LS.del('hw_room'); return; }
-    if (code) {
-      emit('joinRoom', { code, pid, name: LS.get('hw_name') || '' }).then((r) => {
-        if (!r.ok) { LS.del('hw_room'); S = null; render(); }
-      });
-    }
+    if (!ui.acct) { LS.del('hw_room'); if (urlRoom) loadInvite(); return; }
+    enterTargetRoom();
   });
+  // 초대 링크(?room=코드)가 있으면 그 방, 없으면 하던 방으로 바로 입장
+  function enterTargetRoom() {
+    const code = urlRoom || LS.get('hw_room');
+    if (!code || (S && S.room.code === code)) return;
+    socket.emit('joinRoom', { code, pid, name: ui.acct ? ui.acct.nickname : '' }, (r) => {
+      r = r || {};
+      if (r.ok) { LS.set('hw_room', r.code); history.replaceState(null, '', '/?room=' + r.code); return; }
+      if (code === urlRoom) { toast('초대받은 방을 찾을 수 없어요. 방이 끝났을 수 있어요', true); urlRoom = ''; history.replaceState(null, '', '/'); }
+      LS.del('hw_room'); S = null; render();
+    });
+  }
+  // 초대 링크로 처음 온 사람: 어느 방인지 보여 주기 (공개 정보만)
+  function loadInvite() {
+    if (!urlRoom || ui.invite && ui.invite.code === urlRoom) return;
+    socket.emit('roomInfo', { code: urlRoom }, (r) => {
+      ui.invite = r && r.ok ? Object.assign({ code: urlRoom }, r.room) : { code: urlRoom, missing: true };
+      if (!S && !ui.acct) render();
+    });
+  }
   // 진행 중인 방 목록 (첫 화면에서 실시간 갱신)
   socket.on('connect', () => socket.emit('watchRooms', {}, () => {}));
   socket.on('rooms', (list) => { ui.rooms = list || []; if (!S) { const el = document.getElementById('room-list'); if (el) el.innerHTML = roomListHTML(); } });
@@ -96,7 +109,7 @@
   socket.on('notice', (n) => { if (n && n.text) toast('💸 ' + n.text, true); });
   socket.on('ranking', (list) => { ui.ranking = list || []; const el = document.getElementById('rank-list'); if (el) el.innerHTML = rankHTML(); });
   function loadRanking() { socket.emit('ranking', {}, (r) => { if (r && r.ok) { ui.ranking = r.list; const el = document.getElementById('rank-list'); if (el) el.innerHTML = rankHTML(); } }); }
-  socket.on('kicked', () => { LS.del('hw_room'); S = null; toast('방장이 방에서 내보냈습니다'); history.replaceState(null, '', '/'); render(); });
+  socket.on('kicked', () => { LS.del('hw_room'); S = null; urlRoom = ''; toast('방장이 방에서 내보냈습니다'); history.replaceState(null, '', '/'); render(); });
   socket.on('disconnect', () => toast('연결이 끊겼습니다. 다시 연결 중…'));
   socket.on('state', (st) => {
     const prev = S;
@@ -527,19 +540,32 @@
   }
 
   function renderLogin() {
-    const name = LS.get('hw_name') || '';
+    const name = ui.loginName != null ? ui.loginName : LS.get('hw_name') || '';
+    const inv = urlRoom ? ui.invite || { code: urlRoom } : null;
+    const invHTML = inv ? (inv.missing
+      ? `<div class="panel invite miss">😢 초대받은 방 <b>${esc(inv.code)}</b>을(를) 찾을 수 없어요. 방이 끝났을 수 있어요.<br><small>이름을 쓰고 들어가서 다른 방에 참여하거나 새로 만들 수 있어요.</small></div>`
+      : `<div class="panel invite"><div class="inv-t">🎉 초대받았어요!</div><div class="inv-room">${inv.host ? `<b>${esc(inv.host)}</b>님의 ` : ''}<span class="inv-g">${esc(inv.gameName || '')}</span> 방 <span class="inv-code">${esc(inv.code)}</span></div>${inv.status ? `<div class="muted">${inv.status === 'playing' ? '게임 중 — 들어가면 관전하다가 다음 판부터 참여' : '대기 중 — 들어가면 바로 참여'}</div>` : ''}<div class="inv-hint">이름만 쓰면 바로 입장해요 (방 코드 입력 필요 없음)</div></div>`) : '';
     $app.innerHTML = `<div class="pad login" style="position:relative">${muteBtn('snd-float')}
       <h1 class="title brand">🎴 혁게임<span class="logo-sub">HYUK GAME</span></h1>
       <p class="subtitle">고스톱 · 맞고 · 섯다 — 단톡방 친구들과 실시간으로!</p>
-      ${urlRoom ? `<div class="panel" style="text-align:center">🎉 초대받은 방 <b style="color:#ffcf4a">${esc(urlRoom)}</b> — 로그인하면 바로 입장해요</div>` : ''}
-      ${ui.authPending ? '<div class="panel" style="text-align:center">로그인 중…</div>' : `<div class="panel"><h3>시작하기</h3>
-        <div class="muted" style="margin-bottom:8px">처음이면 닉네임과 비밀번호 숫자 4자리(PIN)를 정하세요. 다음부터는 자동으로 로그인돼요.</div>
-        <input id="nick" maxlength="12" placeholder="닉네임" autocomplete="username" value="${esc(name)}">
-        <input id="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="PIN 숫자 4자리" autocomplete="current-password" style="margin-top:8px;letter-spacing:6px">
-        <button class="btn-primary" style="width:100%;margin-top:10px;font-size:17px" data-act="enter">입장하기</button>
-        <div class="muted" style="margin-top:8px;font-size:12px">처음 시작하면 <b>1,000,000원</b>을 드려요. PIN은 암호화해서 저장합니다.</div></div>`}
+      ${invHTML}
+      ${ui.authPending ? '<div class="panel" style="text-align:center">입장 중…</div>' : `<div class="panel"><h3>${inv && !inv.missing ? '내 이름' : '시작하기'}</h3>
+        <input id="nick" maxlength="12" placeholder="이름 (친구들에게 보여요)" autocomplete="nickname" enterkeyhint="go" value="${esc(name)}">
+        ${ui.needPin ? `<input id="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="PIN 숫자 4자리" autocomplete="current-password" style="margin-top:8px;letter-spacing:6px">` : ''}
+        ${ui.loginMsg ? `<div class="login-msg ${ui.loginMsgKind || ''}">${esc(ui.loginMsg)}</div>` : ''}
+        <button class="btn-primary" style="width:100%;margin-top:10px;font-size:18px;padding:14px" data-act="enter">${inv && !inv.missing ? '방에 입장하기' : '입장하기'}</button>
+        <div class="muted" style="margin-top:8px;font-size:12px">처음이면 <b>1,000,000원</b>을 드려요. 이 폰(기기)은 자동으로 기억해서 다음부터 바로 들어가요.${ui.needPin ? '' : ' <a href="#" data-act="havePin" class="lnk">PIN이 있어요</a>'}</div></div>`}
       <p class="notice">※ ${DISCLAIMER}.<br>실제 돈·현금·경품과 교환되지 않으며 결제 기능이 없습니다.</p>
     </div>`;
+  }
+  function pinPanel() {
+    if (!ui.pinForm) return '';
+    const has = ui.acct && ui.acct.hasPin;
+    return `<div class="panel pin-form"><h3>🔒 ${has ? 'PIN 바꾸기' : 'PIN 설정'} <small class="muted">다른 기기에서도 이 이름으로 들어오려면</small></h3>
+      ${has ? '<input id="pin-cur" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="지금 PIN" style="letter-spacing:6px;margin-bottom:6px">' : ''}
+      <input id="pin-new" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="새 PIN 숫자 4자리" style="letter-spacing:6px">
+      <div class="row" style="margin-top:8px"><button class="btn-primary" data-act="savePin">저장</button><button class="btn-ghost" data-act="cancelPin">취소</button></div>
+      <div class="muted" style="font-size:12px;margin-top:6px">다른 폰·PC에서 이름과 PIN을 입력하면 같은 돈으로 이어서 할 수 있어요. PIN은 암호화해서 저장합니다.</div></div>`;
   }
   function rankHTML() {
     const list = ui.ranking || [];
@@ -557,8 +583,10 @@
     $app.innerHTML = `<div class="pad" style="position:relative">${muteBtn('snd-float')}
       <h1 class="title brand">🎴 혁게임<span class="logo-sub">HYUK GAME</span></h1>
       <p class="subtitle">고스톱 · 맞고 · 섯다 — 단톡방 친구들과 실시간으로!</p>
-      <div class="panel acct"><div class="acct-row"><span>👤 <b>${esc(ui.acct.nickname)}</b></span><button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="logout">로그아웃</button></div>
-        <div class="mymoney">💰 내 돈 <b>${won(ui.acct.balance)}</b></div></div>
+      <div class="panel acct"><div class="acct-row"><span>👤 <b>${esc(ui.acct.nickname)}</b></span><span><button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="pinForm">🔒 ${ui.acct.hasPin ? 'PIN 변경' : 'PIN 설정'}</button> <button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="logout">로그아웃</button></span></div>
+        <div class="mymoney">💰 내 돈 <b>${won(ui.acct.balance)}</b></div>
+        ${ui.acct.hasPin ? '' : '<div class="muted" style="font-size:12px;margin-top:4px">다른 기기에서도 쓰려면 <a href="#" data-act="pinForm" class="lnk">PIN 설정</a></div>'}</div>
+      ${pinPanel()}
       ${joinBox}
       <div class="panel rooms-panel"><h3>🟢 진행 중인 방 <small class="muted">누르면 바로 참여 · 실시간</small></h3><div id="room-list">${roomListHTML()}</div></div>
       <div class="panel"><h3>방 만들기</h3>
@@ -942,6 +970,12 @@
     if (!c || c.bonus || !c.m) return;
     document.querySelectorAll('.floor [data-floor]').forEach((e) => { const f = HWATU[Number(e.dataset.floor)]; if (f && !f.bonus && f.m === c.m) e.classList.add('hov'); });
   });
+  // 입장 화면: 키보드 '이동/엔터'로 바로 입장
+  $app.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter') return;
+    if (ev.target.closest('.login')) { ev.preventDefault(); const b = document.querySelector('[data-act="enter"]'); if (b) b.click(); }
+    else if (ev.target.closest('.pin-form')) { ev.preventDefault(); const b = document.querySelector('[data-act="savePin"]'); if (b) b.click(); }
+  });
   $app.addEventListener('click', async (ev) => {
     const pv = ev.target.closest('[data-priv]');
     if (pv) { if (pv.dataset.priv === '1') { ui.create.priv = pv.checked; document.querySelectorAll('[data-priv="1"]').forEach((e) => { e.checked = pv.checked; }); } else emit('setPrivate', { private: pv.checked }); return; }
@@ -1012,20 +1046,42 @@
       case 'reset': if (confirm('이 방의 승수·증감 기록을 초기화할까요? (가진 돈은 그대로)')) { await emit('resetChips'); toast('기록을 초기화했습니다'); } return;
       case 'enter': {
         const nick = (document.getElementById('nick').value || '').trim();
-        const pin = (document.getElementById('pin').value || '').trim();
-        if (!nick) return toast('닉네임을 입력하세요');
-        if (!/^\d{4}$/.test(pin)) return toast('PIN은 숫자 4자리예요');
-        const r = await emit('enter', { nickname: nick, pin });
-        if (!r.ok) return;
+        const pinEl = document.getElementById('pin');
+        const pin = pinEl ? (pinEl.value || '').trim() : '';
+        ui.loginName = nick;
+        if (!nick) { ui.loginMsg = '이름을 입력하세요'; ui.loginMsgKind = 'err'; return render(); }
+        if (pinEl && !/^\d{4}$/.test(pin)) { ui.loginMsg = 'PIN은 숫자 4자리예요'; ui.loginMsgKind = 'err'; return render(); }
+        LS.set('hw_name', nick); // 마지막으로 쓴 이름은 로그아웃해도 기억 (다음에 미리 채움)
+        const r = await new Promise((res) => socket.emit('enter', { nickname: nick, pin: pinEl ? pin : undefined }, (x) => res(x || {})));
+        if (!r.ok) {
+          if (r.code === 'NEED_PIN') { ui.needPin = true; ui.loginMsg = r.error; ui.loginMsgKind = 'info'; }
+          else { ui.loginMsg = r.error || '오류'; ui.loginMsgKind = 'err'; if (r.code === 'TAKEN') ui.needPin = false; }
+          render();
+          const f = document.getElementById(ui.needPin && r.code !== 'TAKEN' ? 'pin' : 'nick'); if (f) f.focus();
+          return;
+        }
         LS.set('hw_token', r.token); LS.set('hw_name', r.account.nickname);
-        ui.acct = r.account;
+        ui.acct = r.account; ui.needPin = false; ui.loginMsg = null; ui.loginName = null;
         toast(r.created ? `🎉 환영해요 ${r.account.nickname}님! ${won(r.account.balance)}으로 시작합니다` : `👋 ${r.account.nickname}님, 다시 오셨네요!`, true);
         loadRanking();
         render();
+        enterTargetRoom(); // 초대 링크로 왔으면 바로 그 방으로
         return;
       }
+      case 'havePin': ev.preventDefault(); ui.loginName = (document.getElementById('nick') || {}).value || ''; ui.needPin = true; ui.loginMsg = null; render(); { const f = document.getElementById('pin'); if (f) f.focus(); } return;
+      case 'pinForm': ev.preventDefault(); ui.pinForm = true; render(); { const f = document.getElementById(ui.acct && ui.acct.hasPin ? 'pin-cur' : 'pin-new'); if (f) f.focus(); } return;
+      case 'cancelPin': ui.pinForm = false; return render();
+      case 'savePin': {
+        const nv = (document.getElementById('pin-new').value || '').trim();
+        const ce = document.getElementById('pin-cur');
+        if (!/^\d{4}$/.test(nv)) return toast('PIN은 숫자 4자리예요');
+        const r = await emit('setPin', { pin: nv, currentPin: ce ? ce.value.trim() : undefined });
+        if (!r.ok) return;
+        ui.acct = r.account; ui.pinForm = false; toast('🔒 PIN을 저장했어요. 다른 기기에서도 이름 + PIN으로 들어올 수 있어요', true);
+        return render();
+      }
       case 'logout':
-        if (!confirm('로그아웃할까요? 다시 들어올 때 PIN이 필요해요.')) return;
+        if (!confirm(ui.acct && ui.acct.hasPin ? '로그아웃할까요? 다시 들어올 때 이름과 PIN이 필요해요.' : '⚠️ PIN이 없어서 로그아웃하면 이 이름(과 돈)으로 다시 들어올 수 없어요!\n먼저 🔒 PIN 설정을 하는 걸 추천해요.\n\n그래도 로그아웃할까요?')) return;
         await emit('logout', { token: LS.get('hw_token') }); LS.del('hw_token'); LS.del('hw_room'); ui.acct = null; return render();
       case 'rules': ui.modal = { type: 'rules' }; return render();
       case 'board': ui.modal = { type: 'board' }; return render();
@@ -1035,7 +1091,7 @@
       case 'flipOnly': ui.sel = null; return emit('action', { type: 'flipOnly' });
       case 'leave':
         if (!(S && S.spectator) && !confirm('방에서 나갈까요?')) return;
-        await emit('leave'); LS.del('hw_room'); S = null; history.replaceState(null, '', '/'); return render();
+        await emit('leave'); LS.del('hw_room'); S = null; urlRoom = ''; history.replaceState(null, '', '/'); return render();
     }
   });
 
