@@ -88,3 +88,17 @@ test('베팅: 체크-체크면 쇼다운', () => {
   assert.ok(g.over);
   assert.equal(Object.values(g.result.chipDelta).reduce((a, b) => a + b, 0), 0);
 });
+
+test('결과 화면용 정보: 다이한 사람·이긴 족보 이름', () => {
+  const { SeotdaGame } = require('../lib/seotda');
+  for (let k = 0; k < 50; k++) {
+    const g = new SeotdaGame([{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }, { id: 'c', name: 'C' }], { ante: 10000 });
+    let guard = 0;
+    while (!g.over && guard++ < 50) { const s = g.seats[g.turn]; g.act(s.id, { type: g.turn === 0 && k % 2 ? 'die' : g.options(g.turn).some((o) => o.type === 'check') ? 'check' : 'call' }); }
+    assert.ok(g.over);
+    const r = g.result;
+    assert.ok(Array.isArray(r.folded));
+    if (k % 2) assert.ok(r.folded.some((f) => f.id === 'a'));
+    if (r.reveal.length) { assert.ok(r.winnerHands.length >= 1); assert.ok(r.reveal.every((x) => typeof x.hand === 'string' && x.hand)); assert.ok(!r.reveal.some((x) => r.folded.some((f) => f.id === x.id)), '다이한 패는 공개 안 함'); }
+  }
+});

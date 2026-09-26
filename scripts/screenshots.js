@@ -98,7 +98,7 @@ function socketBot(name, strategy) {
         if (bet) { bet.click(); return 'bet'; }
         const turn = q('.turnbar') && !q('.turnbar.wait');
         if (turn) {
-          const c = q('.hand .card.hl') || q('.hand .card');
+          const c = q('.hand .card.mt') || q('.hand .card');
           if (c) { c.click(); await new Promise((r) => setTimeout(r, 120)); const again = q('.hand .card.sel'); if (again) again.click(); return 'play'; }
           const f = q('[data-act="flipOnly"]'); if (f) { f.click(); return 'flipOnly'; }
         }
@@ -119,7 +119,7 @@ function socketBot(name, strategy) {
       await shot(p, `${label}_03_rules`);
       await tap(p, '.modal [data-act="close"]');
       for (let k = 0; k < 60; k++) {
-        if (await p.$('.modal .delta')) break;
+        if (await p.$('.res-ov .rm-row')) break;
         await autoplay(p, 'stop'); await autoplay(friend, 'stop');
         await sleep(250);
       }
@@ -128,18 +128,18 @@ function socketBot(name, strategy) {
       // 몇 턴 진행 후 내 차례에서 캡처
       let turns = 0;
       for (let k = 0; k < 200 && turns < (game === 'matgo' ? 5 : 3); k++) {
-        if (await p.$('.modal .delta')) break;
+        if (await p.$('.res-ov .rm-row')) break;
         if (await isMyTurn(p)) { if (await autoplay(p, 'go')) turns++; }
         await autoplay(friend, 'go');
         await sleep(250);
       }
       for (let k = 0; k < 40 && !(await isMyTurn(p)); k++) { await autoplay(friend, 'go'); await sleep(250); }
       // 카드 하나 선택한 상태 (매칭 하이라이트 보이게)
-      await p.evaluate(() => { const c = document.querySelector('.hand .card.hl') || document.querySelector('.hand .card'); if (c && !document.querySelector('.hand .card.sel')) c.click(); });
+      await p.evaluate(() => { const c = document.querySelector('.hand .card.mt') || document.querySelector('.hand .card'); if (c && !document.querySelector('.hand .card.sel')) c.click(); });
       await shot(p, `${label}_02_midgame_myturn`);
       await shot(friend, `${label}_03_midgame_opponent_view`);
       for (let k = 0; k < 400; k++) {
-        if (await p.$('.modal .delta')) break;
+        if (await p.$('.res-ov .rm-row')) break;
         await autoplay(p, 'stop'); await autoplay(friend, 'stop');
         await sleep(200);
       }

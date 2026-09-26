@@ -124,3 +124,22 @@ test('셔플은 매번 다름 (crypto 난수)', () => {
   assert.ok(firsts.size > 25, `서로 다른 첫 카드 ${firsts.size}종`);
   assert.equal(HWATU.length, 50);
 });
+
+test('짝 강조: 같은 달 바닥 패만, 보너스·다른 달은 절대 강조 안 함', () => {
+  const floor = [id(3, 0), id(3, 2), id(4, 1), id(8, 0), 48];
+  assert.deepStrictEqual(H.monthMatches(id(3, 1), floor), [id(3, 0), id(3, 2)]);
+  assert.deepStrictEqual(H.monthMatches(id(5, 0), floor), []);
+  assert.deepStrictEqual(H.monthMatches(48, floor), [], '보너스 쌍피는 짝 없음');
+  assert.deepStrictEqual(H.monthMatches(id(3, 1), floor, [id(3, 0), id(4, 1)]), [id(3, 0)], '서버 짝 목록에 다른 달이 섞여도 걸러냄');
+  assert.deepStrictEqual(H.monthMatches(id(3, 1), floor, [id(3, 3)]), [], '바닥에 없는 패는 제외');
+  const mm = H.matchMap([id(3, 1), id(8, 2), id(12, 0), 49], floor);
+  assert.deepStrictEqual(Object.keys(mm).map(Number).sort((a, b) => a - b), [id(3, 1), id(8, 2)]);
+  for (const [h, fs] of Object.entries(mm)) for (const f of fs) assert.strictEqual(HWATU[f].m, HWATU[h].m);
+  // 무작위 판: 모든 짝은 같은 달
+  for (let r = 0; r < 200; r++) {
+    const g = new GoStopGame(r % 2 ? P3 : P2, { perPoint: 10, first: 0 });
+    const o = g.view(g.players[0].id).options;
+    if (!o || o.phase !== 'play') continue;
+    for (const c of o.cards) for (const f of H.monthMatches(c.id, g.floor, c.matches)) assert.strictEqual(HWATU[f].m, HWATU[c.id].m);
+  }
+});

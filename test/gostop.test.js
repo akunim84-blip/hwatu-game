@@ -269,3 +269,20 @@ test('lastCapture: 뒤집은 패 선택(chooseFlip)은 별도 이벤트(seq 증�
   assert.equal(g.lastCapture.seq, s1 + 1);
   assert.deepEqual(g.lastCapture.gained.slice().sort((x, y) => x - y), [id(10, 0), id(10, 2)]);
 });
+
+test('결과 화면용 정보: 족보별 점수·고 횟수·흔들기·박 태그', () => {
+  const g = new GoStopGame(P2, { bonus: false, perPoint: 1000, first: 0 });
+  const pis = HWATU.filter((c) => c.type === 'pi' && !c.bonus).map((c) => c.id);
+  g.players[0].captured = [id(1, 0), id(3, 0), id(8, 0), ...pis.slice(0, 11)];
+  g.players[1].captured = [pis[11]];
+  g.players[0].go = 1; g.players[0].shakes = 1;
+  g.endWin(0);
+  const r = g.result;
+  assert.ok(r.scoreLines.some((l) => l.label === '3광' && l.pts === 3));
+  assert.ok(r.scoreLines.some((l) => /^피/.test(l.label)));
+  assert.strictEqual(r.scoreLines.reduce((a, l) => a + l.pts, 0), r.baseScore);
+  assert.strictEqual(r.go, 1); assert.strictEqual(r.shakes, 1); assert.strictEqual(r.nagariMult, 1);
+  assert.deepStrictEqual(r.losers[0].tags, ['광박', '피박']);
+  assert.strictEqual(r.chipDelta.a, r.points * 2 * 2 * 2 * 1000);
+  assert.strictEqual(r.chipDelta.a + r.chipDelta.b, 0);
+});

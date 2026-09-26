@@ -137,5 +137,20 @@
     return tags;
   }
 
-  return { SETS, SET_KEYS, GWANG, setsOfCard, progress, badges, completed, threats, handTags };
+  // 손패 강조용: 같은 달 바닥 패만 (보너스 쌍피는 달이 없으므로 절대 짝이 아님).
+  // serverMatches(서버가 알려준 짝)가 있으면 그중 같은 달인 것만 — 달이 다른 패가 강조되는 일이 없게.
+  function monthMatches(card, floor, serverMatches) {
+    const c = C(card);
+    if (!c || c.bonus || !c.m) return [];
+    const base = serverMatches ? serverMatches : floor || [];
+    return base.filter((f) => { const x = C(f); return x && !x.bonus && x.m === c.m && (floor || []).includes(f); });
+  }
+  // 손패 전체 → {handId: [같은 달 바닥 패]} (짝 있는 패만)
+  function matchMap(hand, floor) {
+    const out = {};
+    for (const h of hand || []) { const m = monthMatches(h, floor); if (m.length) out[h] = m; }
+    return out;
+  }
+
+  return { SETS, SET_KEYS, GWANG, setsOfCard, progress, badges, completed, threats, handTags, monthMatches, matchMap };
 });

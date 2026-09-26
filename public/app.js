@@ -1,4 +1,4 @@
-/* 친구끼리 화투 - 클라이언트 (vanilla JS) — AI_V1: AI 상대 지원 · MATGO_V2: 셔플/한 장씩 돌리기 + 족보 힌트 · CAPTURE_V1: 먹기/피 뺏기 애니메이션 · ROOMS_V1: 진행 중인 방 목록/관전/AI 자리 넘겨받기 · WON_V1: 가상 머니(원)·계정(닉네임+PIN)·순위 */
+/* 친구끼리 화투 - 클라이언트 (vanilla JS) — AI_V1: AI 상대 지원 · MATGO_V2: 셔플/한 장씩 돌리기 + 족보 힌트 · CAPTURE_V1: 먹기/피 뺏기 애니메이션 · ROOMS_V1: 진행 중인 방 목록/관전/AI 자리 넘겨받기 · WON_V1: 가상 머니(원)·계정(닉네임+PIN)·순위 · RESULT_V2: 판 끝 결과 화면(마지막 판 잠깐 보여준 뒤 크게, '확인' 전까지 유지) · MATCH_V2: 같은 달 짝 강조 */
 (function () {
   const { HWATU, SEOTDA, MONTH_NAMES, typeLabel } = window.HwatuCards;
   const H = window.HwatuHints;
@@ -129,6 +129,16 @@
       });
     }
     const seotdaReveal = !!(g && g.kind === 'seotda' && g.result && pg && !pg.result && g.result.reveal && g.result.reveal.length);
+    // 판이 방금 끝남 → 마지막 패/먹기 애니메이션과 최종 판을 잠깐 보여준 뒤 결과 화면 (RESULT_V2)
+    const justEnded = !!(g && g.result && pg && !pg.result && sameRoom && prev.room.round === r.round);
+    if (justEnded) {
+      let hold = g.kind === 'seotda' ? (seotdaReveal ? 2000 : 1300) : 1400;
+      if (g.kind !== 'seotda' && newPlay) hold = 1500 + (lp.flip != null ? 300 : 0) + (newCap && lc.gained.length ? 800 + 35 * lc.gained.length + (lc.steals && lc.steals.length ? 450 : 0) : 0);
+      if (!FX.canAnimate) hold = Math.min(hold, 1200);
+      ui.resHold = { key: r.code + ':' + r.round, until: Date.now() + hold };
+      clearTimeout(ui.resTimer);
+      ui.resTimer = setTimeout(() => { if (S && S.game && S.game.result) { render(); FX.tak(0.8); } }, hold + 20);
+    }
     // 진행 상황이 바뀌면 진행 중인 애니메이션은 즉시 정리 (서버 상태가 항상 우선)
     if (!sameRoom || r.actSeq !== prev.room.actSeq || r.round !== prev.room.round) cancelAnim();
     if (g && r.actSeq !== ui.lastSeq) {
@@ -148,8 +158,8 @@
     render();
     try {
       if (newDeal) startDeal(g);
-      else if (newPlay) { if (g.result) FX.tak(); else playAnim(g, lp, snap, newCap ? lc : null); }
-      else if (newCap && !g.result) captureAnim(g, lc, snap, {}, 0);
+      else if (newPlay) playAnim(g, lp, snap, newCap ? lc : null); // 마지막 수도 끝까지 보여 줌
+      else if (newCap) captureAnim(g, lc, snap, {}, 0);
       else if (seotdaReveal) FX.tak();
     } catch (e) { cancelAnim(); }
   });
@@ -355,7 +365,8 @@
     });
   }
   // 패 돌리는 중 화면을 탭하면 건너뛰기
-  document.addEventListener('pointerdown', () => {
+  document.addEventListener('pointerdown', (ev) => {
+    if (resHolding()) { ui.resHold.until = 0; clearTimeout(ui.resTimer); anim.swallowUntil = Date.now() + 600; setTimeout(() => { cancelAnim(); render(); }, 0); return; } // 판 끝 대기 중 탭 → 바로 결과
     if (anim.moving && !anim.dealing) { cancelAnim(); return; } // 먹기 애니메이션: 탭하면 바로 끝 (탭 자체는 그대로 동작)
     if (!anim.dealing) return;
     cancelAnim();
@@ -665,6 +676,7 @@
         <div class="cards">${s.cards.map((c) => sd(c, 'lg')).join('')}</div>
         <div class="hn">${esc(s.handName || '')}</div></div>`;
     } else { meBox = ''; bar = specBar(g); }
+    if (me >= 0 && g.result) bar = resultBar(g);
     if (me >= 0 && !g.result) {
       if (g.options.length) {
         const cls = { die: 'btn-ghost', check: 'btn-blue', bbing: 'btn-blue', call: 'btn-primary', half: 'btn-red', ddadang: 'btn-red' };
@@ -706,13 +718,24 @@
     const byM = {};
     g.floor.forEach((id) => { const m = HWATU[id].m; (byM[m] = byM[m] || []).push(id); });
     const o = g.options;
-    let selMonth = null, selMatches = [];
-    if (ui.sel != null && o && o.phase === 'play') {
-      const oc = o.cards.find((c) => c.id === ui.sel);
-      if (oc) { selMonth = HWATU[oc.id].m; selMatches = oc.matches || []; } else ui.sel = null;
-    }
-    const pendingChoices = g.pending ? g.pending.choices : [];
-    const floorHTML = Object.keys(byM).map((m) => `<div class="fgrp">${byM[m].map((id) => hw(id, (selMatches.includes(id) || (me === g.turn && pendingChoices.includes(id)) ? 'hl' : '') + (id === g.lastFlip ? ' new' : '') + (blockFloor.has(id) ? ' blk' : ''), `data-floor="${id}"`)).join('')}</div>`).join('');
+    // 짝 강조 (MATCH_V2): 같은 달만. 손패↔바닥 둘 다 같은 금색으로.
+    //  - 선택 전: 짝 있는 손패와 그 짝 바닥 패에 은은한 금색 테두리
+    //  - 선택 후: 고른 패와 그 짝만 밝게 깜빡이며 살짝 들림 (나머지는 평소대로)
+    // (예전 버그: 마지막 뒤집은 바닥 패에 붙던 .new 'pop' 애니메이션이 화면을 다시 그릴 때마다 1.4배로 커져서
+    //  손패를 고를 때 달이 다른 바닥 패가 커지는 것처럼 보였음 → 크기 애니메이션 제거)
+    const playable0 = me >= 0 && o && o.phase === 'play' && !g.result;
+    const mm = {};
+    if (playable0) for (const c of o.cards) { const f = H.monthMatches(c.id, g.floor, c.matches || []); if (f.length) mm[c.id] = f; }
+    if (ui.sel != null && !(playable0 && o.cards.some((c) => c.id === ui.sel))) ui.sel = null;
+    const selMatches = ui.sel != null ? mm[ui.sel] || [] : [];
+    const softFloor = new Set(ui.sel == null ? Object.values(mm).flat() : []);
+    const pendingChoices = me === g.turn && o && o.phase === 'chooseFlip' ? H.monthMatches(o.card, g.floor, o.choices) : [];
+    const floorCls = (id) => {
+      if (selMatches.includes(id) || pendingChoices.includes(id)) return 'mt on';
+      if (softFloor.has(id)) return 'mt';
+      return '';
+    };
+    const floorHTML = Object.keys(byM).map((m) => `<div class="fgrp">${byM[m].map((id) => hw(id, floorCls(id) + (id === g.lastFlip ? ' lastf' : '') + (blockFloor.has(id) ? ' blk' : ''), `data-floor="${id}" data-m="${HWATU[id].m}"`)).join('')}</div>`).join('');
     let mineHTML = '', handHTML = '', bar = '';
     const idleBar = '<div class="actbar idle"><button class="btn-ghost" disabled>기다리는 중…<small>&nbsp;</small></button></div>';
     if (me >= 0) {
@@ -722,10 +745,11 @@
       const sorted = (p.hand || []).slice().sort((a, b) => (HWATU[a].m || 13) - (HWATU[b].m || 13) || a - b);
       handHTML = `<div class="hand">${sorted.map((id) => {
         const oc = playable ? o.cards.find((c) => c.id === id) : null;
-        const cls = (ui.sel === id ? 'sel' : '') + (oc && oc.matches && oc.matches.length ? ' hl' : '') + (!playable ? ' dim' : '');
+        const has = !!mm[id];
+        const cls = (ui.sel === id ? 'sel' + (has ? ' mt on' : '') : has && ui.sel == null ? 'mt' : '') + (!playable ? ' dim' : '');
         const t = (tags[id] || [])[0];
         const tagHTML = t ? `<span class="ht ht-${t.key}${t.kind === 'block' ? ' blk' : ''}${t.near ? ' near' : ''}">${t.label}</span>` : '';
-        return hw(id, cls + (t && t.kind === 'block' ? ' blkh' : ''), `data-hand="${id}"`, tagHTML);
+        return hw(id, cls + (t && t.kind === 'block' ? ' blkh' : ''), `data-hand="${id}" data-m="${HWATU[id].m}"`, tagHTML);
       }).join('')}</div>`;
       if (!g.result) {
         if (playable) {
@@ -739,6 +763,7 @@
         }
       }
     } else bar = specBar(g);
+    if (me >= 0 && g.result) bar = resultBar(g);
     return `<div class="opps">${oppHTML}</div>
       <div class="floor-wrap">${threats.length ? `<div class="warns">${threats.slice(0, 3).map((t) => `<div class="warn">⚠️ ${esc(t.name)} ${t.set} 1장 남음${t.blockers.length || t.inHand.length ? ' · <b>막기 가능</b>' : ''}</div>`).join('')}</div>` : ''}
         <div class="deck">${g.deckCount ? hw(null, 'sm') : '<div class="card sm empty"></div>'}<span>남은 패<br><b>${g.deckCount}</b>장</span>${g.lastFlip != null ? `<span class="lf">뒤집은 패</span>${hw(g.lastFlip, 'sm lfc')}` : ''}</div>
@@ -746,32 +771,70 @@
       ${mineHTML}${handHTML}<div class="bar">${bar}</div>`;
   }
 
-  // ---------- 결과 ----------
+  // ---------- 결과 (RESULT_V2) ----------
+  const resKey = () => S.room.code + ':' + S.room.round;
+  const resHolding = () => !!(ui.resHold && S && S.game && S.game.result && ui.resHold.key === resKey() && Date.now() < ui.resHold.until);
+  // 받침에 맞는 조사 '으로/로' (ㄹ받침·받침 없음 → 로)
+  const euro = (w) => { const c = String(w || '').charCodeAt(String(w || '').length - 1) - 0xac00; if (c < 0 || c > 11171) return '(으)로'; const j = c % 28; return j === 0 || j === 8 ? '로' : '으로'; };
+  function resTitle(res) {
+    if (res.nagari) return { emoji: '😮', text: '나가리', cls: 'draw' };
+    if (res.winners.includes(S.me)) return { emoji: '🎉', text: '내가 이겼다!', cls: 'win' };
+    const my = res.chipDelta[S.me];
+    return { emoji: my != null ? '😢' : '🏆', text: `${res.winnerNames.join(', ')} 승리`, cls: my != null ? 'lose' : 'win' };
+  }
+  function resultBar(g) {
+    const t = resTitle(g.result);
+    return `<div class="turnbar res-bar">🏁 판 끝 · ${t.emoji} ${esc(t.text)}</div><div class="actbar"><button class="btn-ghost" data-act="showRes">결과 보기</button>${isHost() ? '<button class="btn-primary" data-act="next">다음 판</button>' : ''}</div>`;
+  }
   function resultHTML() {
     const g = S.game, r = S.room;
     if (!g || !g.result || r.status !== 'result') return '';
     const res = g.result;
+    const t = resTitle(res);
+    if (resHolding()) return `<div class="end-ribbon ${t.cls}">🏁 판 끝! <b>${esc(t.text)}</b><small>탭하면 바로 결과</small></div>`;
+    if (ui.resClosed === resKey()) return '';
     const myDelta = res.chipDelta[S.me];
-    let body = '';
+    let how = '', body = '';
     if (res.game === 'seotda') {
-      body = `<div class="res-lines">${res.reason ? esc(res.reason) + '<br>' : ''}${res.reveal.map((x) => `<div style="display:flex;align-items:center;gap:8px;margin:4px 0">${x.cards.map((c) => sd(c, 'sm')).join('')}<b>${esc(x.name)}</b> ${esc(x.hand)}${res.winners.includes(x.id) ? ' 👑' : ''}</div>`).join('')}<div>판돈 ${won(res.pot)}</div></div>`;
+      how = res.reason ? esc(res.reason) : res.winnerHands && res.winnerHands.length ? `<b>${esc(res.winnerHands.join(' · '))}</b>${euro(res.winnerHands[res.winnerHands.length - 1])} 승리` : '';
+      const rows = res.reveal.slice().sort((x, y) => (res.winners.includes(y.id) - res.winners.includes(x.id)) || (y.eff || 0) - (x.eff || 0)).map((x) => `<div class="rs-row ${res.winners.includes(x.id) ? 'w' : ''}"><span class="rs-cards">${x.cards.map((c) => sd(c, 'xs')).join('')}</span><span class="rs-nm">${res.winners.includes(x.id) ? '👑 ' : ''}${esc(x.name)}</span><span class="rs-hand">${esc(x.hand)}</span></div>`).join('');
+      const folded = (res.folded || []).length ? `<div class="rs-row fold"><span class="rs-nm">${res.folded.map((f) => esc(f.name)).join(', ')}</span><span class="rs-hand">다이</span></div>` : '';
+      body = `<div class="res-sec">${rows}${folded}<div class="res-pot">판돈 <b>${won(res.pot)}</b></div></div>`;
     } else if (res.nagari) {
-      body = `<div class="res-lines">${res.lines.map(esc).join('<br>')}</div>`;
+      how = '아무도 점수를 못 냈어요';
+      body = `<div class="res-sec res-nagari">다음 판 점수 <b>2배</b>!</div>`;
     } else {
-      body = `<div class="res-lines"><b>${res.points}점</b> × 점당 ${won(res.perPoint)}<br>${res.lines.map(esc).join('<br>')}${res.losers.map((l) => `<br>· ${esc(l.name)}: ${l.tags.length ? esc(l.tags.join(', ')) + ' ' : ''}x${l.mult} → ${won(l.amount)}`).join('')}</div>`;
+      const extra = [];
+      if (res.go) extra.push(`${res.go}고`);
+      if (res.shakes) extra.push(`흔들기/폭탄 ${res.shakes}번`);
+      if (res.nagariMult > 1) extra.push(`나가리 x${res.nagariMult}`);
+      how = `<b>${res.points}점</b> × 점당 ${won(res.perPoint)}${extra.length ? ' · ' + extra.join(' · ') : ''}`;
+      const lines = (res.scoreLines || []).map((l) => `<span class="rc">${esc(l.label)} <b>${l.pts}점</b></span>`);
+      if (res.threePpeok) lines.push('<span class="rc hot">3뻑 승리</span>');
+      if (res.go) lines.push(`<span class="rc hot">${res.go}고 ${res.go >= 3 ? `x${Math.pow(2, res.go - 2)}` : `+${res.go}점`}</span>`);
+      if (res.shakes) lines.push(`<span class="rc hot">흔들기 x${Math.pow(2, res.shakes)}</span>`);
+      if (res.nagariMult > 1) lines.push(`<span class="rc hot">나가리 x${res.nagariMult}</span>`);
+      const losers = (res.losers || []).map((l) => `<div class="rs-row"><span class="rs-nm">${esc(l.name)}</span><span class="rs-tags">${l.tags.length ? l.tags.map((x) => `<span class="bak">${esc(x)}</span>`).join('') : '<span class="muted">박 없음</span>'}${l.mult > 1 ? ` <b>x${l.mult}</b>` : ''}</span></div>`).join('');
+      body = `<div class="res-sec"><div class="res-lbl">${esc(res.winnerNames[0])}님 점수</div><div class="res-chips">${lines.join('')}</div></div>${losers ? `<div class="res-sec"><div class="res-lbl">박 · 배수</div>${losers}</div>` : ''}`;
     }
-    const deltas = Object.entries(res.chipDelta).map(([id, d]) => {
+    const order = Object.entries(res.chipDelta).sort((a, b) => b[1] - a[1]);
+    const money = order.map(([id, d]) => {
       const p = r.players.find((x) => x.id === id);
       const gp = (g.players || g.seats || []).find((x) => x.id === id);
-      return `<div class="delta"><span>${esc(p ? p.name : gp ? gp.name : '?')}</span><span class="chip ${d < 0 ? 'neg' : ''}">${fmtWC(d)} → ${wonC(p ? p.chips : 0)}</span></div>`;
+      const bal = p ? p.chips : 0;
+      const W = (n) => (Math.abs(n) >= 1e8 ? wonC(n) : won(n));
+      return `<div class="rm-row ${id === S.me ? 'me' : ''}"><span class="rm-nm">${esc(p ? p.name : gp ? gp.name : '?')}${id === S.me ? ' (나)' : ''}</span><span class="rm-d ${d > 0 ? 'pos' : d < 0 ? 'neg' : ''}">${d > 0 ? '+' : ''}${W(d)}</span><span class="rm-b">→ ${W(bal)}</span></div>`;
     }).join('');
-    const title = res.nagari ? '😮 나가리' : res.winners.includes(S.me) ? '🎉 승리!' : `${esc(res.winnerNames.join(', '))} 승리`;
-    return `<div class="modal-bg"><div class="modal"><h2>${title}</h2>
-      ${myDelta != null ? `<div style="text-align:center;font-size:20px;font-weight:900" class="chip ${myDelta < 0 ? 'neg' : ''}">내 돈 ${fmtW(myDelta)}</div><div class="muted" style="text-align:center">지금 내 돈 ${won(meP() ? meP().chips : 0)}</div>` : ''}
-      ${body}${deltas}
-      <div class="btns">${isHost() ? '<button class="btn-primary" data-act="next">다음 판</button><button class="btn-ghost" data-act="toLobby">대기실로</button>' : '<div class="muted" style="text-align:center;width:100%">방장이 다음 판을 시작하길 기다리는 중…</div>'}</div>
-      <div class="btns"><button class="btn-ghost" data-act="board">🏆 점수판</button></div>
-      <p class="notice" style="margin:8px 0 0">${DISCLAIMER}.</p></div></div>`;
+    const btns = isHost()
+      ? '<button class="btn-primary" data-act="next">다음 판</button><button class="btn-ghost" data-act="closeRes">판 보기</button><button class="btn-ghost" data-act="toLobby">대기실로</button>'
+      : '<button class="btn-primary" data-act="closeRes">확인</button>';
+    return `<div class="res-ov"><div class="res-card ${t.cls}">
+      <div class="res-head"><div class="res-emoji">${t.emoji}</div><h2>${esc(t.text)}</h2>${how ? `<div class="res-how">${how}</div>` : ''}
+        ${myDelta != null ? `<div class="res-my ${myDelta > 0 ? 'pos' : myDelta < 0 ? 'neg' : ''}">내 돈 ${fmtW(myDelta)}</div>` : ''}</div>
+      <div class="res-body">${body}<div class="res-sec res-money"><div class="res-lbl">돈 정산</div>${money}</div></div>
+      <div class="res-btns">${btns}</div>
+      ${!isHost() ? '<div class="res-wait">방장이 다음 판을 시작하면 바로 이어져요</div>' : ''}
+      <p class="notice res-note">${DISCLAIMER}.</p></div></div>`;
   }
 
   // ---------- 모달 ----------
@@ -868,12 +931,16 @@
   }
 
   // (PC) 손패에 마우스를 올리면 먹을 수 있는 바닥 패 강조
+  // 터치폰에서는 탭할 때 가짜 mouseover가 생겨 강조가 남으므로, 진짜 마우스(hover 가능)일 때만
+  const canHover = !!(window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches);
   $app.addEventListener('mouseover', (ev) => {
+    if (!canHover) return;
     const h = ev.target.closest('[data-hand]');
     document.querySelectorAll('.floor .card.hov').forEach((e) => e.classList.remove('hov'));
-    if (!h) return;
-    const m = HWATU[Number(h.dataset.hand)].m;
-    document.querySelectorAll('.floor [data-floor]').forEach((e) => { if (HWATU[Number(e.dataset.floor)].m === m) e.classList.add('hov'); });
+    if (!h || ui.sel != null) return;
+    const c = HWATU[Number(h.dataset.hand)];
+    if (!c || c.bonus || !c.m) return;
+    document.querySelectorAll('.floor [data-floor]').forEach((e) => { const f = HWATU[Number(e.dataset.floor)]; if (f && !f.bonus && f.m === c.m) e.classList.add('hov'); });
   });
   $app.addEventListener('click', async (ev) => {
     const pv = ev.target.closest('[data-priv]');
@@ -938,7 +1005,9 @@
       case 'joinUrl': return joinCode(urlRoom);
       case 'share': return share();
       case 'start': return emit('start');
-      case 'next': return emit('start');
+      case 'next': ui.resClosed = null; return emit('start');
+      case 'closeRes': if (S) ui.resClosed = resKey(); return render();
+      case 'showRes': ui.resClosed = null; if (ui.resHold) ui.resHold.until = 0; return render();
       case 'toLobby': return emit('toLobby');
       case 'reset': if (confirm('이 방의 승수·증감 기록을 초기화할까요? (가진 돈은 그대로)')) { await emit('resetChips'); toast('기록을 초기화했습니다'); } return;
       case 'enter': {

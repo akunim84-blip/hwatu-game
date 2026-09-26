@@ -132,7 +132,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   };
   s.on('state', step);
   step({ game: room.engine.view(aPid) });
-  await B.waitForFunction((bp) => !!document.querySelector('.modal-bg') && document.body.innerText.includes('이제 참여'), { timeout: 60000 }, bPid).catch(() => {});
+  await B.waitForFunction((bp) => !!document.querySelector('.res-ov'), { timeout: 60000 }, bPid).catch(() => {});
   report.promoted = { players: room.players.map((p) => p.name + (p.ai ? '(AI)' : '')), status: room.status, spectators: room.spectators.length };
   await shot(B, 'spectate-promoted');
   s.close();

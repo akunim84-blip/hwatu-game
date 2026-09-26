@@ -25,7 +25,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const tap = async (p, sel) => { await p.waitForSelector(sel, { timeout: 10000 }); await p.$eval(sel, (el) => el.click()); };
   const step = (p) => p.evaluate(async () => {
     const q = (s) => document.querySelector(s);
-    if (q('.modal .delta')) return 'result';
+    if (q('.res-ov .rm-row')) return 'result';
     if (q('[data-gs]')) { q('[data-gs="stop"]').click(); return 'gs'; }
     if (q('[data-flipc]')) { q('[data-flipc]').click(); return 'flip'; }
     if (q('[data-choose]')) { q('[data-choose]').click(); return 'choose'; }
@@ -33,7 +33,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const bet = q('[data-bet="call"]') || q('[data-bet="check"]') || q('[data-bet="bbing"]');
     if (bet) { bet.click(); return 'bet'; }
     if (q('.turnbar') && !q('.turnbar.wait')) {
-      const c = q('.hand .card.hl') || q('.hand .card:not(.dim)');
+      const c = q('.hand .card.mt') || q('.hand .card:not(.dim)');
       if (c) { c.click(); await new Promise((r) => setTimeout(r, 100)); const s = q('.hand .card.sel'); if (s) s.click(); return 'play'; }
       const f = q('[data-act="flipOnly"]'); if (f) { f.click(); return 'flipOnly'; }
     }
@@ -72,16 +72,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       }
       await sleep(200);
     }
-    const done = !!(await p.$('.modal .delta'));
+    const done = !!(await p.$('.res-ov .rm-row'));
     if (!midShot) await shot(p, `ai-${game}`);
     await sleep(500);
     await shot(p, `ai-${game}-result`);
-    const title = await p.evaluate(() => (document.querySelector('.modal h2') || {}).textContent);
-    const names = await p.evaluate(() => [...document.querySelectorAll('.modal .delta span:first-child')].map((e) => e.textContent));
+    const title = await p.evaluate(() => (document.querySelector('.res-ov h2') || {}).textContent);
+    const names = await p.evaluate(() => [...document.querySelectorAll('.res-ov .rm-nm')].map((e) => e.textContent));
     report.push({ game, fullRound: done, secs: Math.round((Date.now() - t0) / 1000), myActions: steps, stateChanges: aiActs.size, overflowSamples: overflow, result: title, players: names });
     console.log(JSON.stringify(report[report.length - 1]));
     // 다음 판도 시작되는지
-    if (done) { await tap(p, '[data-act="next"]'); await sleep(1500); report[report.length - 1].nextRoundStarted = !(await p.$('.modal .delta')); }
+    if (done) { await tap(p, '[data-act="next"]'); await sleep(1500); report[report.length - 1].nextRoundStarted = !(await p.$('.res-ov .rm-row')); }
     await p.close();
   }
 

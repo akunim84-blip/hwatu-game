@@ -117,7 +117,7 @@ function socketBot(name) {
     // 바쁜 중반 상태까지 진행
     let found = false;
     for (let k = 0; k < 600 && !found; k++) {
-      if (await p.$('.modal .delta')) { await tap(p, '[data-act="next"]'); await sleep(3200); continue; }
+      if (await p.$('.res-ov .rm-row')) { await tap(p, '[data-act="next"]'); await sleep(3200); continue; }
       if (await myTurn(p)) {
         if (game === 'seotda') { found = true; break; }
         const caps = await p.evaluate(() => document.querySelectorAll('.caps .card').length);

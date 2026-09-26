@@ -65,7 +65,6 @@ label.chk input{width:auto}
 .card.hl{box-shadow:0 0 0 3px #ffcf4a,0 0 12px #ffcf4a}
 .card.sel{transform:translateY(calc(var(--u,1)*-11px));box-shadow:0 0 0 3px #4ae0ff,0 6px 12px rgba(0,0,0,.6)}
 .card.dim{filter:brightness(.6)}
-.card.new{animation:pop .5s}
 @keyframes pop{0%{transform:scale(1.4)}100%{transform:scale(1)}}
 /* go-stop table */
 .opps{display:flex;gap:6px;padding:5px 8px}
@@ -142,7 +141,7 @@ table.sb td,table.sb th{padding:7px 4px;border-bottom:1px solid rgba(255,255,255
 #fly-layer{position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:15;overflow:hidden}
 .flyer{position:absolute!important;left:0;top:0;margin:0!important;will-change:transform,opacity;box-shadow:0 8px 16px rgba(0,0,0,.45);transform-origin:50% 50%}
 .deal-deck{position:fixed!important;z-index:14;pointer-events:none;transform:rotate(-4deg);box-shadow:2px 2px 0 #7a1c1c,4px 4px 0 #5a1414,0 6px 12px rgba(0,0,0,.5)}
-@media (prefers-reduced-motion:reduce){.card.new{animation:none}}
+@media (prefers-reduced-motion:reduce){.card.mt.on{animation:none}}
 /* 가로 화면(폰 가로): 2단 그리드 — 왼쪽 상대/바닥, 오른쪽 내 패/버튼 */
 @media (orientation:landscape) and (max-height:520px){
   #app.game{max-width:980px;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr) auto;column-gap:6px}
@@ -178,7 +177,7 @@ table.sb td,table.sb th{padding:7px 4px;border-bottom:1px solid rgba(255,255,255
 @keyframes htpulse{50%{filter:brightness(1.35)}}
 .card.blk{box-shadow:0 0 0 2px #ff5252,0 0 10px #ff5252}
 .card.blkh:not(.sel){box-shadow:0 0 0 2px #ff5252,0 2px 4px rgba(0,0,0,.5)}
-.card.hov{box-shadow:0 0 0 3px #4ae0ff,0 0 10px #4ae0ff}
+.card.hov{box-shadow:0 0 0 3px #ffd54a,0 0 12px 3px rgba(255,213,74,.8)}
 #app .floor-wrap{position:relative}
 .warns{position:absolute;left:6px;right:6px;top:2px;display:flex;flex-direction:column;align-items:center;gap:2px;pointer-events:none;z-index:2}
 .warn{font-size:11px;font-weight:800;background:rgba(120,0,0,.78);color:#ffd7d2;border:1px solid #ff8a80;border-radius:10px;padding:1px 8px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
@@ -189,15 +188,15 @@ table.sb td,table.sb th{padding:7px 4px;border-bottom:1px solid rgba(255,255,255
 .flyer.ghostc{transition:box-shadow .15s}
 .flyer.cap-glow{box-shadow:0 0 0 2px #ffe08a,0 0 14px 3px rgba(255,224,138,.85)!important}
 .flyer.steal-glow{box-shadow:0 0 0 2px #ff8a80,0 0 12px 3px rgba(255,82,82,.8)!important}
-/* 브랜드: 혁게임 (로고 폰트 Black Han Sans, SIL OFL 1.1 — public/fonts/OFL-BlackHanSans.txt, 사용 글자만 서브셋) */
-@font-face{font-family:'HyukLogo';src:url(/fonts/hyuk-logo.woff2) format('woff2');font-display:swap}
-.brand{font-family:'HyukLogo','Black Han Sans','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif;font-weight:900;letter-spacing:2px}
-.title.brand{font-size:42px;letter-spacing:4px;margin-top:22px;text-shadow:0 2px 10px rgba(0,0,0,.35)}
-.title .logo-sub{display:block;font-family:inherit;font-size:13px;letter-spacing:6px;opacity:.55;margin-top:2px}
-/* 게임 장판 워터마크: 가운데 크게, 반투명, 탭 방해 없음, 스크롤에 영향 없음(fixed) */
+/* 브랜드: 혁게임 (로고 폰트 Noto Sans KR 가변 폰트, SIL OFL 1.1 — public/fonts/OFL-NotoSansKR.txt, 사용 글자만 서브셋) — 얇고 깔끔한 고딕 */
+@font-face{font-family:'HyukLogo';src:url(/fonts/hyuk-logo-noto.woff2) format('woff2');font-weight:100 900;font-display:swap}
+.brand{font-family:'HyukLogo','Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-weight:600;letter-spacing:2px}
+.title.brand{font-size:40px;letter-spacing:5px;margin-top:22px;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,.25)}
+.title .logo-sub{display:block;font-family:inherit;font-weight:500;font-size:12px;letter-spacing:7px;opacity:.6;margin-top:2px}
+/* 게임 장판 워터마크: 가운데 크게, 흰색 반투명, 탭 방해 없음, 스크롤에 영향 없음(fixed) */
 #app.game::before{content:'혁게임';position:fixed;left:50%;top:50%;transform:translate(-50%,-52%);z-index:-1;pointer-events:none;white-space:nowrap;
-  font-family:'HyukLogo','Black Han Sans','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif;font-weight:900;
-  font-size:min(24vw,17vh,190px);letter-spacing:.08em;padding-left:.08em;color:#fff;opacity:.22;line-height:1;text-shadow:none;-webkit-text-fill-color:#fff}
+  font-family:'HyukLogo','Noto Sans KR','Apple SD Gothic Neo','Malgun Gothic',sans-serif;font-weight:500;
+  font-size:min(24vw,17vh,190px);letter-spacing:.1em;padding-left:.1em;color:#fff;opacity:.22;line-height:1;text-shadow:none;-webkit-text-fill-color:#fff}
 #app.game::after{content:'';position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:-1;pointer-events:none;
   width:min(84vw,60vh,640px);height:min(84vw,60vh,640px);border-radius:50%;border:2px solid rgba(255,255,255,.18);
   box-shadow:inset 0 0 0 6px rgba(0,0,0,0),inset 0 0 0 8px rgba(255,255,255,.07)}
@@ -227,3 +226,63 @@ ol.rank .rk{flex:none;width:26px;text-align:center;font-weight:900}
 ol.rank .rn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}
 ol.rank .rm{flex:none;font-weight:800;color:#ffcf4a}
 .login input{width:100%}
+/* 짝 강조 (MATCH_V2): 같은 달 손패↔바닥 패, 같은 금색. 크기(scale)는 절대 바꾸지 않고 살짝 들어 올리기만 */
+.card.lastf{outline:2px dashed rgba(255,255,255,.55);outline-offset:1px}
+.card.mt:not(.x-):not(.y-){box-shadow:0 0 0 2px #ffd54a,0 0 9px 2px rgba(255,213,74,.6)}
+.card.mt.on{position:relative;z-index:3;transform:translateY(calc(var(--u,1)*-7px));animation:mtpulse 1s ease-in-out infinite}
+.hand .card.sel.mt.on{transform:translateY(calc(var(--u,1)*-14px))}
+.card.sel:not(.mt){box-shadow:0 0 0 3px #4ae0ff,0 6px 12px rgba(0,0,0,.6)}
+@keyframes mtpulse{0%,100%{box-shadow:0 0 0 3px #ffd54a,0 0 10px 3px rgba(255,213,74,.75),0 6px 10px rgba(0,0,0,.5)}50%{box-shadow:0 0 0 4px #fff4a8,0 0 22px 8px rgba(255,213,74,1),0 8px 12px rgba(0,0,0,.5)}}
+/* 판 끝 결과 화면 (RESULT_V2): 최종 판을 잠깐 보여준 뒤 크게, '확인'/'다음 판' 누를 때까지 유지. 한 화면 맞춤 */
+.end-ribbon{position:fixed;left:50%;top:22%;transform:translateX(-50%);z-index:60;pointer-events:none;padding:10px 22px;border-radius:14px;background:rgba(0,0,0,.72);color:#fff;font-size:20px;font-weight:800;text-align:center;white-space:nowrap;box-shadow:0 0 0 2px #ffcf4a,0 8px 24px rgba(0,0,0,.5);animation:ribbonIn .35s ease-out}
+.end-ribbon b{color:#ffcf4a}
+.end-ribbon small{display:block;font-size:11px;font-weight:500;opacity:.7;margin-top:2px}
+@keyframes ribbonIn{from{opacity:0;transform:translate(-50%,-12px)}to{opacity:1;transform:translate(-50%,0)}}
+.res-ov{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:max(8px,env(safe-area-inset-top)) 8px max(8px,env(safe-area-inset-bottom));background:rgba(0,0,0,.62);animation:resFade .25s ease-out}
+@keyframes resFade{from{opacity:0}to{opacity:1}}
+.res-card{--u:1;width:100%;max-width:440px;max-height:100%;display:flex;flex-direction:column;background:linear-gradient(180deg,#1d5a43,#0f3a2b);border-radius:18px;box-shadow:0 0 0 2px rgba(255,255,255,.12),0 16px 40px rgba(0,0,0,.6);overflow:hidden;animation:resPop .3s cubic-bezier(.2,1.3,.4,1)}
+@keyframes resPop{from{transform:translateY(16px) scale(.96);opacity:0}to{transform:none;opacity:1}}
+.res-card.win{box-shadow:0 0 0 3px #ffcf4a,0 16px 40px rgba(0,0,0,.6)}
+.res-card.lose{box-shadow:0 0 0 2px #ff8a80,0 16px 40px rgba(0,0,0,.6)}
+.res-head{flex:none;text-align:center;padding:12px 12px 8px;background:rgba(0,0,0,.18)}
+.res-emoji{font-size:34px;line-height:1}
+.res-head h2{margin:4px 0 2px;font-size:26px;font-weight:900;color:#fff}
+.res-card.win .res-head h2{color:#ffcf4a}
+.res-how{font-size:14px;color:#e8f3ec}
+.res-how b{color:#ffe08a}
+.res-my{margin-top:6px;font-size:22px;font-weight:900}
+.pos{color:#8fe3a8}.neg{color:#ff8a80}
+.res-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:6px 12px;display:flex;flex-direction:column;gap:8px}
+.res-sec{background:rgba(255,255,255,.07);border-radius:12px;padding:8px 10px}
+.res-lbl{font-size:12px;font-weight:800;color:#bfe0cf;margin-bottom:5px}
+.res-chips{display:flex;flex-wrap:wrap;gap:5px}
+.res-chips .rc{padding:4px 9px;border-radius:999px;background:rgba(255,255,255,.12);font-size:13px}
+.res-chips .rc b{color:#ffe08a}
+.res-chips .rc.hot{background:rgba(255,138,128,.25);color:#ffd2cc;font-weight:800}
+.rs-row{display:flex;align-items:center;gap:8px;padding:3px 0;font-size:14px}
+.rs-row+.rs-row{border-top:1px solid rgba(255,255,255,.08)}
+.rs-row.w .rs-nm,.rs-row.w .rs-hand{color:#ffcf4a}
+.rs-row.fold{opacity:.65}
+.rs-cards{display:flex;gap:2px;flex:none}
+.card.xs{width:26px;height:42px;border-radius:3px}
+.card.xs .mb{min-width:10px;height:10px;font-size:7px;line-height:10px;right:1px;top:1px;padding:0 1px;box-shadow:0 0 0 1px #fff}
+.card.xs .tb{display:none}
+.rs-nm{flex:1;min-width:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rs-hand{flex:none;font-size:17px;font-weight:900}
+.rs-tags{flex:none;display:flex;gap:4px;align-items:center}
+.bak{padding:2px 7px;border-radius:6px;background:#b3261e;color:#fff;font-size:12px;font-weight:800}
+.res-pot{text-align:right;font-size:13px;margin-top:4px;color:#e8f3ec}
+.res-nagari{text-align:center;font-size:17px}
+.rm-row{display:flex;align-items:baseline;gap:6px;padding:3px 0;font-size:14px}
+.rm-row.me{font-weight:800}
+.rm-nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rm-d{flex:none;font-weight:900}
+.rm-b{flex:none;font-size:12px;color:#cfe3d8;min-width:0}
+.res-btns{flex:none;display:flex;gap:8px;padding:8px 12px 4px}
+.res-btns button{flex:1;padding:13px 6px;font-size:16px}
+.res-btns .btn-primary{flex:1.4;font-size:18px}
+.res-wait{flex:none;text-align:center;font-size:12px;color:#cfe3d8;padding:0 12px}
+.res-note{flex:none;margin:4px 12px 8px!important;font-size:11px!important}
+.turnbar.res-bar{background:#2a1f00;color:#ffcf4a}
+@media (max-height:680px){.res-emoji{font-size:26px}.res-head{padding:8px 10px 6px}.res-head h2{font-size:22px}.res-my{font-size:19px;margin-top:3px}.res-body{gap:6px;padding:4px 10px}.res-sec{padding:6px 8px}.res-btns button{padding:10px 6px}.rs-hand{font-size:15px}}
+@media (max-height:460px){.res-card{max-width:760px}.res-head{display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;padding:6px 10px}.res-head h2{margin:0;font-size:20px}.res-emoji{font-size:22px}.res-my{margin:0;font-size:17px}.res-body{flex-direction:row;flex-wrap:wrap;align-items:flex-start}.res-body>.res-sec{flex:1 1 45%;min-width:0}.res-note{display:none}.res-btns{padding:6px 10px}.res-btns button{padding:8px 6px;font-size:15px}.res-wait{display:none}.card.xs{width:22px;height:36px}}
