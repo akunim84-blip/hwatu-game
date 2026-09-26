@@ -371,3 +371,47 @@ a.lnk{color:#ffcf4a;text-decoration:underline}
 .bgmb:not(.snd-float){position:relative}
 .bgmb.off{opacity:.6}
 .bgmb.off::after{content:'';position:absolute;left:22%;right:22%;top:50%;height:2px;background:#ff6b6b;transform:rotate(-40deg);border-radius:2px}
+/* 이름 바꾸기·계정 삭제 (RENAME_V1 / DELETE_V1) */
+.lnk-red{background:none;border:0;color:#ff8f8f;font-size:12px;text-decoration:underline;padding:2px 4px;cursor:pointer;white-space:nowrap}
+.acct-form input{display:block;width:100%;margin-top:8px;padding:11px 12px;font-size:16px;border-radius:10px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.35);color:#fff}
+.acct-form .pin-in{letter-spacing:6px}
+.acct-form .login-msg{margin-top:6px}
+.acct-form .btns{margin-top:10px}
+.acct .acct-row>span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:48%}
+/* 나가기 / 나가기 예약 (EXIT_V1) */
+.hdr .exit-btn{color:#ffd0c8;border-color:rgba(255,120,100,.5)}
+.hdr .exit-btn.on{background:#b8322a;color:#fff;border-color:#ff8a7a;font-weight:800}
+.resv-tag{display:inline-block;margin-left:4px;padding:1px 5px;border-radius:6px;background:#b8322a;color:#fff;font-size:10px;font-weight:700;vertical-align:middle;white-space:nowrap}
+/* 턴 타이머 (TIMER_V1) */
+.opp,.mine,.sd-seat,.sd-me{position:relative}
+.tt-bar{position:absolute;left:4px;right:4px;top:1px;height:4px;border-radius:3px;background:rgba(255,255,255,.15);overflow:hidden;z-index:2;pointer-events:none}
+.tt-bar i{display:block;height:100%;width:100%;background:#5dea8a;transform-origin:left center;animation-name:ttshrink;animation-timing-function:linear;animation-fill-mode:both}
+.tt-bar.hot i{background:#ff4d3d}
+@keyframes ttshrink{from{transform:scaleX(1)}to{transform:scaleX(0)}}
+.tt-me{position:fixed;right:10px;top:calc(46px + env(safe-area-inset-top));z-index:40;min-width:46px;height:46px;border-radius:23px;background:rgba(0,0,0,.72);border:3px solid #5dea8a;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:22px;pointer-events:none;box-shadow:0 2px 10px rgba(0,0,0,.5)}
+.tt-me small{font-size:11px;margin-left:1px;font-weight:700}
+.tt-me.hot{border-color:#ff4d3d;color:#ffd0c8;animation:ttpulse .5s ease-in-out infinite alternate}
+@keyframes ttpulse{from{transform:scale(1)}to{transform:scale(1.12)}}
+/* 채팅 (CHAT_V1) */
+.chat-btn{position:relative}
+.chat-btn .badge{position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#ff3b30;color:#fff;font-size:10px;line-height:16px;font-weight:800}
+.chat-bg{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.25)}
+.chat-drawer{position:fixed;left:0;right:0;bottom:0;z-index:61;max-width:520px;margin:0 auto;background:#10281c;border:1px solid rgba(255,255,255,.2);border-bottom:0;border-radius:16px 16px 0 0;padding:8px 10px calc(8px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:6px;max-height:min(62dvh,420px);box-shadow:0 -6px 24px rgba(0,0,0,.5)}
+.chat-hd{display:flex;align-items:center;justify-content:space-between}
+.chat-hd button{padding:4px 10px;font-size:13px}
+.chat-list{flex:1;min-height:70px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;font-size:14px;-webkit-overflow-scrolling:touch}
+.chat-list .cl{max-width:85%;align-self:flex-start;background:rgba(255,255,255,.1);padding:5px 9px;border-radius:12px;word-break:break-all;line-height:1.35}
+.chat-list .cl b{display:block;font-size:11px;color:#ffcf4a}
+.chat-list .cl.me{align-self:flex-end;background:#2a7a44}
+.chat-list .cl.sys{align-self:center;background:none;color:#9bb5a4;font-size:12px;padding:0}
+.chat-quick{display:flex;gap:5px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.chat-quick::-webkit-scrollbar{display:none}
+.chat-quick button{flex:none;padding:6px 10px;border-radius:14px;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff;font-size:13px;white-space:nowrap}
+.chat-in{display:flex;gap:6px}
+.chat-in input{flex:1;padding:9px 10px;font-size:16px;border-radius:10px}
+.chat-in button{flex:none;padding:8px 14px}
+.chat-bubble{position:fixed;z-index:55;max-width:min(220px,70vw);background:#fff;color:#1a1a1a;font-size:13px;font-weight:700;padding:5px 10px;border-radius:12px;box-shadow:0 3px 10px rgba(0,0,0,.4);pointer-events:none;word-break:break-all;animation:bubin .18s ease-out;transition:opacity .35s}
+.chat-bubble.out{opacity:0}
+@keyframes bubin{from{transform:translateY(6px) scale(.9);opacity:0}to{transform:none;opacity:1}}
+.hdr .exit-btn.on{font-size:11px;line-height:1.1;padding:3px 7px}
+@media (max-width:400px){.hdr{gap:4px;padding-left:8px;padding-right:8px}.hdr button{padding:6px 7px}}

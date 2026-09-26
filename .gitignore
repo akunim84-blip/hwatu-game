@@ -3,3 +3,4 @@ run/
 *.log
 screenshots/
 data/
+.admin-key

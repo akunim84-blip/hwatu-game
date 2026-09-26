@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="ko"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow"><title>혁게임 관리자</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;background:#10241a;color:#eef3ee;font-size:15px}
+header{position:sticky;top:0;z-index:5;background:#0b1a12;padding:10px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #244}
+header h1{font-size:17px;margin:0;flex:1}.tabs{display:flex;gap:6px;padding:8px 12px}
+.tab{flex:1;padding:9px;border-radius:10px;border:1px solid #2d5;background:transparent;color:#cfe;font-weight:700}.tab.on{background:#2a7a44;color:#fff}
+main{padding:0 12px 24px}input{width:100%;padding:11px;border-radius:10px;border:1px solid #365;background:#0c1c14;color:#fff;font-size:16px}
+button{font:inherit;cursor:pointer}.btn{padding:7px 11px;border-radius:9px;border:1px solid #3a6;background:#183826;color:#e8ffe8;font-size:13px}
+.btn.red{border-color:#c44;background:#4a1515;color:#ffd6d6}.btn.pri{background:#2a7a44;border-color:#2a7a44;color:#fff;font-weight:700}
+.card{background:#163022;border:1px solid #28503a;border-radius:12px;padding:10px;margin:8px 0}
+.row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.name{font-weight:800;font-size:16px}.muted{color:#9bb5a4;font-size:12px}
+.money{color:#ffd76a;font-weight:700}.tag{font-size:11px;padding:2px 6px;border-radius:6px;background:#244;color:#bdf}.tag.on{background:#1f6a3a;color:#cfc}
+.acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.center{max-width:380px;margin:18vh auto 0;padding:0 16px;text-align:center}
+.err{color:#ff9a9a;font-size:13px;min-height:18px;margin:6px 0}
+#modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:16px;z-index:10}
+#modal .box{background:#17301f;border:1px solid #3a6;border-radius:14px;padding:16px;width:100%;max-width:360px}
+#modal h3{margin:0 0 8px}#modal p{margin:6px 0 10px;line-height:1.45;font-size:14px}
+#toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#000c;color:#fff;padding:9px 14px;border-radius:10px;display:none;z-index:20;font-size:14px;max-width:90vw}
+</style></head><body>
+<div id="app"></div><div id="modal"><div class="box" id="mbox"></div></div><div id="toast"></div>
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const won = (n) => Number(n || 0).toLocaleString('ko-KR') + '원';
+const when = (t) => { if (!t) return '-'; const d = new Date(t); const m = Math.round((Date.now() - t) / 60000); return m < 1 ? '방금' : m < 60 ? m + '분 전' : m < 1440 ? Math.round(m / 60) + '시간 전' : d.toLocaleDateString('ko-KR'); };
+const st = { tab: 'acc', q: '', list: [], rooms: [], storage: '' };
+async function api(url, body) {
+  const r = await fetch('/admin/api' + url, body ? { method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-req': '1' }, body: JSON.stringify(body) } : {});
+  const j = await r.json().catch(() => ({ ok: false, error: '서버 오류' }));
+  if (j.code === 'AUTH') { showLogin(); throw new Error(j.error); }
+  return j;
+}
+function toast(t) { const e = $('#toast'); e.textContent = t; e.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => e.style.display = 'none', 2600); }
+function modal(html) { $('#mbox').innerHTML = html; $('#modal').style.display = html ? 'flex' : 'none'; const i = $('#mbox input'); if (i) i.focus(); }
+function showLogin(msg) {
+  $('#app').innerHTML = `<div class="center"><h2>🎴 혁게임 관리자</h2><p class="muted">관리자 키를 한 번 입력하면 이 기기에서 30일 동안 기억해요.</p>
+    <form id="lf"><input id="key" type="password" autocomplete="current-password" placeholder="관리자 키"><div class="err" id="lerr">${esc(msg || '')}</div><button class="btn pri" style="width:100%;padding:12px">들어가기</button></form></div>`;
+  $('#lf').onsubmit = async (e) => { e.preventDefault(); const r = await api('/login', { key: $('#key').value }); if (!r.ok) return ($('#lerr').textContent = r.error); main(); };
+}
+function shell() {
+  $('#app').innerHTML = `<header><h1>🎴 혁게임 관리자</h1><button class="btn" id="logout">로그아웃</button></header>
+    <div class="tabs"><button class="tab ${st.tab === 'acc' ? 'on' : ''}" data-tab="acc">👤 계정</button><button class="tab ${st.tab === 'room' ? 'on' : ''}" data-tab="room">🎲 방</button></div><main id="body"></main>`;
+  $('#logout').onclick = async () => { await api('/logout', {}); showLogin(); };
+  document.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { st.tab = b.dataset.tab; main(); });
+}
+async function loadAcc() {
+  const r = await api('/accounts?q=' + encodeURIComponent(st.q)); if (!r.ok) return toast(r.error);
+  st.list = r.list; st.storage = r.storage; drawAcc();
+}
+function drawAcc() {
+  const body = $('#body'); if (!body) return;
+  const had = document.activeElement && document.activeElement.id === 'q';
+  body.innerHTML = `<input id="q" placeholder="🔍 이름 검색" value="${esc(st.q)}" autocomplete="off">
+    <div class="muted" style="margin:6px 2px">${st.list.length}명 (잔액 순, 최대 200) · 저장소: ${esc(st.storage)}</div>
+    ${st.list.map((a) => `<div class="card"><div class="row"><span class="name">${esc(a.nickname)}</span>
+      ${a.online ? '<span class="tag on">접속 중</span>' : ''}${a.room ? `<span class="tag">방 ${esc(a.room)}</span>` : ''}<span class="tag">${a.hasPin ? '🔒 PIN 있음' : 'PIN 없음'}</span></div>
+      <div class="row" style="margin-top:4px"><span class="money">${won(a.balance)}</span><span class="muted">파산 ${a.bankruptCount}회 · 가입 ${when(a.createdAt)} · 최근 ${when(a.lastSeen)}</span></div>
+      <div class="acts"><button class="btn" data-a="pin" data-k="${esc(a.key)}">🔑 PIN 재설정</button><button class="btn" data-a="bal" data-k="${esc(a.key)}">💰 잔액</button><button class="btn" data-a="ren" data-k="${esc(a.key)}">✏️ 이름</button><button class="btn red" data-a="del" data-k="${esc(a.key)}">🗑 삭제</button></div></div>`).join('') || '<p class="muted">계정이 없어요</p>'}`;
+  const q = $('#q'); if (had) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+  q.oninput = () => { st.q = q.value; clearTimeout(drawAcc.t); drawAcc.t = setTimeout(loadAcc, 250); };
+  body.querySelectorAll('[data-a]').forEach((b) => b.onclick = () => act(b.dataset.a, st.list.find((x) => x.key === b.dataset.k)));
+}
+function act(a, acc) {
+  if (!acc) return;
+  const foot = (label, cls) => `<div class="err" id="merr"></div><div class="row" style="justify-content:flex-end"><button class="btn" id="mno">취소</button><button class="btn ${cls || 'pri'}" id="mok">${label}</button></div>`;
+  const run = async (fn) => { const r = await fn(); if (!r.ok) return ($('#merr').textContent = r.error); modal(''); loadAcc(); return r; };
+  if (a === 'del') modal(`<h3>🗑 '${esc(acc.nickname)}' 계정 삭제</h3><p>잔액 <b>${won(acc.balance)}</b>, 기록, 순위, 기기 로그인이 <b>영구히 삭제</b>되고 되돌릴 수 없어요. 접속 중이면 방에서 나가고 로그아웃돼요.</p><input id="mv" placeholder="확인: 이름 '${esc(acc.nickname)}' 입력">${foot('영구 삭제', 'red')}`);
+  if (a === 'pin') modal(`<h3>🔑 '${esc(acc.nickname)}' PIN 재설정</h3><p>새 PIN 4자리를 정해 본인에게 알려 주세요. 비워 두면 무작위로 만들어요.</p><input id="mv" inputmode="numeric" maxlength="4" placeholder="새 PIN (비우면 자동)">${foot('재설정')}`);
+  if (a === 'bal') modal(`<h3>💰 '${esc(acc.nickname)}' 잔액</h3><p>지금 ${won(acc.balance)}. 새 잔액을 입력하거나 +50000 / -50000 처럼 더하고 빼세요.</p><input id="mv" inputmode="numeric" placeholder="예: 1000000 또는 +50000">${foot('저장')}`);
+  if (a === 'ren') modal(`<h3>✏️ '${esc(acc.nickname)}' 이름 바꾸기</h3><p>돈·PIN·기기 로그인은 그대로예요.</p><input id="mv" maxlength="12" value="${esc(acc.nickname)}">${foot('바꾸기')}`);
+  $('#mno').onclick = () => modal('');
+  $('#mok').onclick = async () => {
+    const v = $('#mv').value.trim();
+    if (a === 'del') { if (v !== acc.nickname) return ($('#merr').textContent = '이름이 정확히 같아야 해요'); const r = await run(() => api('/account/delete', { key: acc.key })); if (r) toast(`'${r.deleted}' 삭제함`); }
+    if (a === 'pin') { if (v && !/^\d{4}$/.test(v)) return ($('#merr').textContent = 'PIN은 숫자 4자리'); const r = await api('/account/pin', { key: acc.key, pin: v || undefined }); if (!r.ok) return ($('#merr').textContent = r.error); modal(`<h3>🔑 새 PIN</h3><p>'${esc(acc.nickname)}'의 새 PIN은</p><div style="font-size:34px;letter-spacing:10px;text-align:center;font-weight:800">${esc(r.pin)}</div><p class="muted">본인에게 알려 주세요 (다시 보여 줄 수 없어요).</p><div class="row" style="justify-content:flex-end"><button class="btn pri" id="mno">확인</button></div>`); $('#mno').onclick = () => { modal(''); loadAcc(); }; }
+    if (a === 'bal') { const m = /^([+-])\s*([\d,]+)$/.exec(v); const n = Number(v.replace(/[,\s원]/g, '')); const r = await run(() => api('/account/balance', m ? { key: acc.key, delta: (m[1] === '-' ? -1 : 1) * Number(m[2].replace(/,/g, '')) } : { key: acc.key, balance: n })); if (r) toast(`잔액 ${won(r.account.balance)}`); }
+    if (a === 'ren') { const r = await run(() => api('/account/rename', { key: acc.key, nickname: v })); if (r) toast(`이름: ${r.account.nickname}`); }
+  };
+}
+async function loadRooms() { const r = await api('/rooms'); if (!r.ok) return toast(r.error); st.rooms = r.list; drawRooms(); }
+function drawRooms() {
+  const body = $('#body'); if (!body) return;
+  const S = { lobby: '대기 중', playing: '게임 중', result: '결과' };
+  body.innerHTML = `<div class="row" style="justify-content:space-between;margin:4px 2px"><span class="muted">지금 열린 방 ${st.rooms.length}개</span><button class="btn" id="rf">↻ 새로고침</button></div>
+    ${st.rooms.map((r) => `<div class="card"><div class="row"><span class="name">${esc(r.game)} · ${esc(r.code)}</span><span class="tag ${r.status === 'playing' ? 'on' : ''}">${S[r.status] || r.status} ${r.round ? r.round + '판' : ''}</span>${r.private ? '<span class="tag">비공개</span>' : ''}</div>
+      <div class="muted" style="margin-top:4px">방장 ${esc(r.host)} · 관전 ${r.spectators} · 최근 ${when(r.lastActive)}</div>
+      <div style="margin-top:4px">${r.players.map((p) => `<span class="tag" style="margin-right:4px">${p.ai ? '🤖' : p.connected ? '🟢' : '⚪'} ${esc(p.name)}</span>`).join('')}</div>
+      <div class="acts"><button class="btn red" data-close="${esc(r.code)}">🚪 방 닫기 (모두 내보내기)</button></div></div>`).join('') || '<p class="muted">열린 방이 없어요</p>'}`;
+  $('#rf').onclick = loadRooms;
+  body.querySelectorAll('[data-close]').forEach((b) => b.onclick = () => {
+    modal(`<h3>🚪 방 ${esc(b.dataset.close)} 닫기</h3><p>방에 있는 사람을 모두 내보내고 방을 없앱니다. 진행 중인 판은 정산 없이 끝나요.</p><div class="err" id="merr"></div><div class="row" style="justify-content:flex-end"><button class="btn" id="mno">취소</button><button class="btn red" id="mok">닫기</button></div>`);
+    $('#mno').onclick = () => modal('');
+    $('#mok').onclick = async () => { const r = await api('/room/close', { code: b.dataset.close }); if (!r.ok) return ($('#merr').textContent = r.error); modal(''); toast('방을 닫았어요'); loadRooms(); };
+  });
+}
+async function main() {
+  const me = await api('/me'); if (!me.ok) return ($('#app').innerHTML = `<div class="center">${esc(me.error)}</div>`);
+  if (!me.authed) return showLogin();
+  shell(); if (st.tab === 'acc') loadAcc(); else loadRooms();
+}
+$('#modal').onclick = (e) => { if (e.target.id === 'modal') modal(''); };
+main();
+</script></body></html>

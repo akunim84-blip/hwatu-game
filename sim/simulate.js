@@ -91,7 +91,7 @@ async function runRoom(game, nPlayers, rounds, label, opts = {}) {
         if (dsum !== 0) stats.conservationFail++;
         if (stats.rounds >= rounds) { done = true; resolveDone(); return; }
         // (혼자+AI 방에서는 방장이 재접속 중일 수 있으므로 타임아웃이면 재시도)
-        const startRetry = (k) => host.emit('start').then((x) => { if (!x.ok && x.timeout && k < 10) setTimeout(() => startRetry(k + 1), 100); else if (!x.ok && !/진행 중/.test(x.error)) console.error(label, 'start err', x.error); });
+        const startRetry = (k) => host.emit('start').then((x) => { if (!x.ok && (x.timeout || /방에 없습니다/.test(x.error)) && k < 60) setTimeout(() => startRetry(k + 1), 100); else if (!x.ok && !/진행 중/.test(x.error)) console.error(label, 'start err', x.error); });
         setImmediate(() => startRetry(0));
         return;
       }

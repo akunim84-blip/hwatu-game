@@ -106,14 +106,39 @@
   // 진행 중인 방 목록 (첫 화면에서 실시간 갱신)
   socket.on('connect', () => socket.emit('watchRooms', {}, () => {}));
   socket.on('rooms', (list) => { ui.rooms = list || []; if (!S) { const el = document.getElementById('room-list'); if (el) el.innerHTML = roomListHTML(); } });
-  socket.on('me', (m) => { ui.acct = m; if (!S || S.room.status === 'lobby') render(); });
-  socket.on('notice', (n) => { if (n && n.text) toast('💸 ' + n.text, true); });
+  socket.on('me', (m) => { ui.acct = m; if (m && m.nickname) LS.set('hw_name', m.nickname); if (!S || S.room.status === 'lobby') render(); });
+  socket.on('notice', (n) => { if (n && n.text) toast((n.type === 'timeout' ? '⏰ ' : '💸 ') + n.text, true); });
   socket.on('ranking', (list) => { ui.ranking = list || []; const el = document.getElementById('rank-list'); if (el) el.innerHTML = rankHTML(); });
   function loadRanking() { socket.emit('ranking', {}, (r) => { if (r && r.ok) { ui.ranking = r.list; const el = document.getElementById('rank-list'); if (el) el.innerHTML = rankHTML(); } }); }
-  socket.on('kicked', () => { LS.del('hw_room'); S = null; urlRoom = ''; toast('방장이 방에서 내보냈습니다'); history.replaceState(null, '', '/'); render(); });
+  // 계정이 사라짐 (이 기기에서 삭제·다른 기기에서 삭제·관리자 삭제): 토큰·마지막 이름 지우고 처음 입장 화면으로
+  function accountGone(text) {
+    LS.del('hw_token'); LS.del('hw_name'); LS.del('hw_room');
+    try { cancelAnim(); } catch (e) {}
+    ui.acct = null; ui.modal = null; ui.loginName = ''; S = null; urlRoom = '';
+    history.replaceState(null, '', '/');
+    toast(text, true);
+    render();
+  }
+  document.addEventListener('input', (ev) => {
+    const m = ui.modal; if (!m || (m.type !== 'rename' && m.type !== 'delAcct')) return;
+    if (ev.target.id === 'rn-new' || ev.target.id === 'del-name') m.val = ev.target.value;
+    if (ev.target.id === 'rn-pin' || ev.target.id === 'del-pin') m.pin = ev.target.value;
+  });
+  // 나가기 예약한 판이 끝남: 결과를 잠깐 보여 준 뒤 첫 화면으로
+  socket.on('reservedLeft', (m) => {
+    LS.del('hw_room');
+    toast((m && m.text) || '예약한 대로 방에서 나왔어요', true);
+    const leftRoom = S && S.room.code;
+    setTimeout(() => { if (S && S.room.code === leftRoom) { try { cancelAnim(); } catch (e) {} S = null; urlRoom = ''; history.replaceState(null, '', '/'); render(); } }, 3000);
+  });
+  socket.on('accountDeleted', (m) => accountGone((m && m.text) || '계정이 삭제되었어요'));
+  socket.on('kicked', (m) => { LS.del('hw_room'); try { cancelAnim(); } catch (e) {} S = null; urlRoom = ''; toast((m && m.text) || '방장이 방에서 내보냈습니다'); history.replaceState(null, '', '/'); render(); });
   socket.on('disconnect', () => toast('연결이 끊겼습니다. 다시 연결 중…'));
   socket.on('state', (st) => {
     const prev = S;
+    const tn = st.room && st.room.turn;
+    ui.turnAt = tn && st.game && !st.game.result ? { pid: tn.pid, deadline: Date.now() + tn.ms, total: tn.total } : null;
+    if (!prev || prev.room.code !== st.room.code) { if (!ui.chatRoom || ui.chatRoom !== st.room.code) { ui.chat = []; ui.unread = 0; ui.chatRoom = st.room.code; } }
     const snap = snapshotRects();
     S = st;
     if (st.spectator && (!prev || !prev.spectator || prev.room.code !== st.room.code)) toast(st.spectator.waiting ? '👀 관전 중 — 다음 판부터 AI 자리에서 참여합니다' : '👀 관전 중 (자리가 모두 찼어요)', true);
@@ -200,6 +225,7 @@
     $app.classList.toggle('game', inGame);
     if (!inGame) { $app.style.removeProperty('--u'); document.documentElement.classList.remove('in-game'); }
     try { FX.music(inGame ? 'game' : 'lobby'); } catch (e) {}
+    if (!S && ui.chatOpen) { ui.chatOpen = false; drawChat(); }
     if (!S) return renderLanding();
     const r = S.room;
     if (r.status === 'lobby' || !S.game) return renderLobby();
@@ -595,8 +621,8 @@
     $app.innerHTML = `<div class="pad" style="position:relative">${muteBtn('snd-float')}
       <h1 class="title brand">🎴 혁게임<span class="logo-sub">HYUK GAME</span></h1>
       <p class="subtitle">고스톱 · 맞고 · 섯다 — 단톡방 친구들과 실시간으로!</p>
-      <div class="panel acct"><div class="acct-row"><span>👤 <b>${esc(ui.acct.nickname)}</b></span><span><button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="pinForm">🔒 ${ui.acct.hasPin ? 'PIN 변경' : 'PIN 설정'}</button> <button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="logout">로그아웃</button></span></div>
-        <div class="mymoney">💰 내 돈 <b>${won(ui.acct.balance)}</b></div>
+      <div class="panel acct"><div class="acct-row"><span>👤 <b>${esc(ui.acct.nickname)}</b></span><span><button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="pinForm">🔒 ${ui.acct.hasPin ? 'PIN 변경' : 'PIN 설정'}</button> <button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="renameForm">✏️ 이름 바꾸기</button> <button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="logout">로그아웃</button></span></div>
+        <div class="mymoney" style="display:flex;align-items:center;justify-content:space-between;gap:6px"><span>💰 내 돈 <b>${won(ui.acct.balance)}</b></span><button class="lnk-red" data-act="delForm">계정 삭제</button></div>
         ${ui.acct.hasPin ? '' : '<div class="muted" style="font-size:12px;margin-top:4px">다른 기기에서도 쓰려면 <a href="#" data-act="pinForm" class="lnk">PIN 설정</a></div>'}</div>
       ${pinPanel()}
       ${joinBox}
@@ -621,7 +647,7 @@
       </div>
       <div class="panel rank-panel"><h3>🏆 순위 <small class="muted">가진 돈 Top 10</small></h3><div id="rank-list">${rankHTML()}</div></div>
       <p class="notice">※ <b>${DISCLAIMER}</b>.<br>실제 돈·현금·경품과 교환되지 않으며 결제 기능이 없습니다. 0원이 되면 300,000원으로 다시 시작해요.<br><span style="opacity:.7">카드 그림: Wikimedia Commons “Hwatu” 세트 (Spenĉjo, Louie Mantia Jr. 원작 기반), <a href="/cards/LICENSE.txt" style="color:#ffcf4a">CC BY-SA 4.0</a><br>배경음악·효과음·연출: 혁게임 자체 제작 (Web Audio 실시간 합성)<br>외침 목소리: <a href="https://github.com/myshell-ai/MeloTTS" style="color:#ffcf4a">MeloTTS</a> 한국어 모델(MyShell.ai, MIT 라이선스)로 생성</span></p>
-    </div>`;
+    </div>${modalHTML()}`;
   }
 
   const privChk = () => `<label class="chk"><input type="checkbox" data-priv="1" ${ui.create.priv ? 'checked' : ''}> 🔒 비공개 (진행 중인 방 목록에 안 보이게)</label>`;
@@ -650,7 +676,7 @@
 
   function playersList() {
     const r = S.room;
-    return `<ul class="plist">${r.players.map((p) => `<li class="${p.ai ? 'ai' : ''}"><div>${esc(p.name)}${p.ai ? `<span class="tag ai">AI·${p.level === 'easy' ? '쉬움' : '보통'}</span>` : ''}${p.id === r.hostId ? '<span class="tag">방장</span>' : ''}${p.id === S.me ? '<span class="tag" style="background:#4ae0ff">나</span>' : ''}${!p.connected ? '<span class="tag off">연결끊김</span>' : ''}${isHost() && p.id !== S.me && r.status !== 'playing' ? `<button class="btn-ghost" style="padding:4px 8px;font-size:11px;margin-left:6px" data-kick="${esc(p.id)}" ${p.ai ? 'data-ai="1"' : ''}>${p.ai ? '빼기' : '내보내기'}</button>` : ''}</div><div class="chip ${p.chips < 0 ? 'neg' : ''}">${won(p.chips)}</div></li>`).join('')}</ul>`;
+    return `<ul class="plist">${r.players.map((p) => `<li class="${p.ai ? 'ai' : ''}" data-pid="${esc(p.id)}"><div>${esc(p.name)}${p.ai ? `<span class="tag ai">AI·${p.level === 'easy' ? '쉬움' : '보통'}</span>` : ''}${p.id === r.hostId ? '<span class="tag">방장</span>' : ''}${p.id === S.me ? '<span class="tag" style="background:#4ae0ff">나</span>' : ''}${!p.connected ? '<span class="tag off">연결끊김</span>' : ''}${isHost() && p.id !== S.me && r.status !== 'playing' ? `<button class="btn-ghost" style="padding:4px 8px;font-size:11px;margin-left:6px" data-kick="${esc(p.id)}" ${p.ai ? 'data-ai="1"' : ''}>${p.ai ? '빼기' : '내보내기'}</button>` : ''}</div><div class="chip ${p.chips < 0 ? 'neg' : ''}">${won(p.chips)}</div></li>`).join('')}</ul>`;
   }
 
   const hostPrivChk = () => (isHost() ? `<label class="chk" style="justify-content:center"><input type="checkbox" data-priv="host" ${S.room.private ? 'checked' : ''}> 🔒 비공개 방 (진행 중인 방 목록에 안 보이게)</label>` : '');
@@ -684,19 +710,119 @@
 
   const muteBtn = (cls) => `<button class="btn-ghost snd ${cls || ''}" data-act="mute" aria-label="소리 켜기/끄기" title="소리 켜기/끄기">${FX.isMuted() ? '🔇' : '🔊'}</button>` + bgmBtn(cls ? cls + ' bgm' : '');
   const bgmBtn = (cls) => `<button class="btn-ghost snd bgmb ${cls || ''} ${FX.isBgmOn() && !FX.isMuted() ? '' : 'off'}" data-act="bgm" aria-label="배경음악 켜기/끄기" title="배경음악 켜기/끄기">🎵</button>`;
+  // ---------- 턴 타이머 (TIMER_V1) ----------
+  // 서버가 준 남은 시간(ms) 기준. 막대는 CSS 애니메이션(다시 그려도 이어지게 음수 delay), 숫자·빨간색·틱 소리는 0.2초마다
+  const ttLeft = () => (ui.turnAt ? ui.turnAt.deadline - Date.now() : 0);
+  function timerBar(pid) {
+    const t = ui.turnAt;
+    if (!t || t.pid !== pid) return '';
+    const left = ttLeft();
+    return `<div class="tt-bar ${left <= 3000 ? 'hot' : ''}"><i style="animation-duration:${t.total}ms;animation-delay:${Math.round(left - t.total)}ms"></i></div>`;
+  }
+  function myTimerHTML() {
+    const t = ui.turnAt;
+    if (!t || !S || t.pid !== S.me) return '';
+    const sec = Math.max(0, Math.ceil(Math.min(ttLeft(), t.total) / 1000));
+    return `<div class="tt-me ${sec <= 3 ? 'hot' : ''}"><span data-tt>${sec}</span><small>초</small></div>`;
+  }
+  let ttLastSec = null;
+  setInterval(() => {
+    const t = ui.turnAt;
+    if (!t) { ttLastSec = null; return; }
+    const left = ttLeft();
+    const sec = Math.max(0, Math.ceil(Math.min(left, t.total) / 1000));
+    document.querySelectorAll('[data-tt]').forEach((el) => { el.textContent = sec; el.parentNode.classList.toggle('hot', sec <= 3); });
+    document.querySelectorAll('.tt-bar').forEach((el) => el.classList.toggle('hot', left <= 3000));
+    if (S && t.pid === S.me && sec !== ttLastSec && sec > 0 && sec <= 3 && left <= t.total) { try { FX.beep(sec === 1 ? 1320 : 990, 0.07); } catch (e) {} }
+    ttLastSec = sec;
+  }, 200);
+
+  // ---------- 채팅 (CHAT_V1) ----------
+  // 서랍(오버레이)은 #app 밖에 따로 둠 → 게임 화면이 다시 그려져도 입력 중인 글이 지워지지 않음
+  const QUICK = ['빨리 치세요~', '잘 쳤다!', '아쉽다 ㅠㅠ', '한 판 더?', '나이스!', '감사합니다', '👍', '😂', '😭', '🔥', '👏'];
+  ui.chat = []; ui.unread = 0;
+  const chatRoot = document.createElement('div'); chatRoot.id = 'chat-root'; document.body.appendChild(chatRoot);
+  function chatBtn() { return `<button class="btn-ghost chat-btn" data-act="chat">💬${ui.unread ? `<span class="badge">${ui.unread > 9 ? '9+' : ui.unread}</span>` : ''}</button>`; }
+  function chatLine(m) {
+    if (m.sys) return `<div class="cl sys">${esc(m.text)}</div>`;
+    const mine = S && m.pid === S.me;
+    return `<div class="cl ${mine ? 'me' : ''}">${mine ? '' : `<b>${esc(m.name)}</b>`}<span>${esc(m.text)}</span></div>`;
+  }
+  function drawChat() {
+    if (!ui.chatOpen || !S) { chatRoot.innerHTML = ''; return; }
+    let list = chatRoot.querySelector('.chat-list');
+    if (!list) {
+      chatRoot.innerHTML = `<div class="chat-bg" data-chat="close"></div><div class="chat-drawer"><div class="chat-hd"><b>💬 채팅</b><button class="btn-ghost" data-chat="close">닫기</button></div>
+        <div class="chat-list"></div><div class="chat-quick">${QUICK.map((q) => `<button data-quick="${esc(q)}">${esc(q)}</button>`).join('')}</div>
+        <form class="chat-in"><input id="chat-text" maxlength="100" autocomplete="off" enterkeyhint="send" placeholder="메시지 (최대 100자)"><button class="btn-primary">보내기</button></form></div>`;
+      list = chatRoot.querySelector('.chat-list');
+      chatRoot.querySelector('.chat-in').addEventListener('submit', (ev) => { ev.preventDefault(); const i = document.getElementById('chat-text'); sendChat(i.value, () => { i.value = ''; }); });
+    }
+    list.innerHTML = ui.chat.length ? ui.chat.map(chatLine).join('') : '<div class="cl sys">아직 대화가 없어요. 아래 버튼으로 인사해 보세요!</div>';
+    list.scrollTop = list.scrollHeight;
+  }
+  function sendChat(text, done) {
+    text = String(text || '').trim(); if (!text) return;
+    socket.emit('chat', { text }, (r) => { if (r && !r.ok) toast(r.error || '보내지 못했어요'); else if (done) done(); });
+  }
+  chatRoot.addEventListener('click', (ev) => {
+    const q = ev.target.closest('[data-quick]'); if (q) { sendChat(q.dataset.quick); return; }
+    if (ev.target.closest('[data-chat="close"]')) { ui.chatOpen = false; drawChat(); }
+  });
+  function setUnread(n) { ui.unread = n; const b = document.querySelector('.chat-btn'); if (b) b.outerHTML = chatBtn(); }
+  // 말풍선: 보낸 사람 자리 위에 3초
+  function bubble(m) {
+    const el = document.querySelector(`[data-pid="${CSS.escape(m.pid)}"]`);
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    if (!r.width) return;
+    const b = document.createElement('div');
+    b.className = 'chat-bubble';
+    b.textContent = m.text;
+    document.body.appendChild(b);
+    const w = b.offsetWidth;
+    b.style.left = Math.max(4, Math.min(innerWidth - w - 4, r.left + r.width / 2 - w / 2)) + 'px';
+    const hb = (document.querySelector('.hdr') || { getBoundingClientRect: () => ({ bottom: 0 }) }).getBoundingClientRect().bottom;
+    const above = r.top - b.offsetHeight - 4;
+    b.style.top = (above >= hb + 2 ? above : Math.min(r.top + 6, innerHeight - b.offsetHeight - 4)) + 'px'; // 위에 자리가 없으면(맨 위 자리) 자리 안쪽 위에
+    setTimeout(() => b.classList.add('out'), 2700);
+    setTimeout(() => b.remove(), 3100);
+  }
+  socket.on('chatHistory', (h) => { if (!h) return; ui.chatRoom = h.code; ui.chat = h.list || []; drawChat(); });
+  socket.on('chat', (m) => {
+    if (!m || !S) return;
+    ui.chat = ui.chat.concat(m).slice(-50);
+    if (!m.sys) {
+      if (m.pid !== S.me) { try { FX.beep(1560, 0.04); } catch (e) {} }
+      if (!ui.chatOpen && m.pid !== S.me) setUnread(ui.unread + 1);
+      bubble(m);
+    }
+    drawChat();
+  });
+
   function header() {
     const r = S.room;
     const g = S.game;
     let extra = '';
     if (g && g.kind !== 'seotda' && g.mult > 1) extra = ` · x${g.mult}`;
     const nsp = (r.spectators || []).length;
-    return `<div class="hdr"><div class="t">🎴 ${esc(r.gameName)} · ${esc(r.code)}${r.round ? ` · ${r.round}판` : ''}${extra}${nsp ? ` · 👀${nsp}` : ''}</div>${muteBtn()}<button class="btn-ghost" data-act="rules">규칙</button><button class="btn-ghost" data-act="board">점수판</button></div>`;
+    return `<div class="hdr"><div class="t">🎴 ${esc(r.gameName)} · ${esc(r.code)}${r.round ? ` · ${r.round}판` : ''}${extra}${nsp ? ` · 👀${nsp}` : ''}</div>${muteBtn()}<button class="btn-ghost" data-act="rules" aria-label="규칙">📖</button><button class="btn-ghost" data-act="board" aria-label="점수판">🏆</button>${chatBtn()}${exitBtn()}</div>`;
   }
+  // 나가기 (EXIT_V1, 한게임식 나가기 예약): 판 중이면 예약/취소, 판이 아니면 바로 나감
+  const myRoomP = () => S && S.room.players.find((p) => p.id === S.me);
+  const inMyRound = () => !!(S && S.room.status === 'playing' && S.game && !S.game.result && myRoomP() && myRoomP().playing);
+  function exitBtn() {
+    if (S.spectator) return '';
+    const me = myRoomP();
+    const on = !!(me && me.leaveReserved);
+    return `<button class="btn-ghost exit-btn ${on ? 'on' : ''}" data-act="exitRoom">${on ? '나가기<br>예약됨' : '나가기'}</button>`;
+  }
+  const resvTag = (id) => { const p = S && S.room.players.find((x) => x.id === id); return p && p.leaveReserved ? '<span class="resv-tag">나가기 예약</span>' : ''; };
 
   function renderGame() {
     const g = S.game;
     let body = g.kind === 'seotda' ? seotdaHTML(g) : gostopHTML(g);
-    $app.innerHTML = header() + body + resultHTML() + modalHTML();
+    $app.innerHTML = header() + body + resultHTML() + modalHTML() + myTimerHTML();
   }
 
   // ---------- 섯다 ----------
@@ -704,15 +830,15 @@
     const me = g.mySeat;
     const chipsOf = (id) => { const p = S.room.players.find((x) => x.id === id); return p ? p.chips : 0; };
     const others = g.seats.map((s, i) => ({ s, i })).filter((x) => x.i !== me);
-    const seatBox = ({ s, i }) => `<div data-seat="${i}" class="sd-seat ${g.turn === i ? 'turn' : ''} ${s.folded ? 'fold' : ''}">
-        <div style="font-weight:800">${esc(s.name)}${s.folded ? ' (다이)' : ''}</div>
+    const seatBox = ({ s, i }) => `<div data-seat="${i}" data-pid="${esc(s.id)}" class="sd-seat ${g.turn === i ? 'turn' : ''} ${s.folded ? 'fold' : ''}">${timerBar(s.id)}
+        <div style="font-weight:800">${esc(s.name)}${s.folded ? ' (다이)' : ''}${resvTag(s.id)}</div>
         <div class="muted">${wonC(chipsOf(s.id) - (g.result ? 0 : s.contrib))} · 베팅 ${wonC(s.contrib)}</div>
         <div class="cards">${s.cards.map((c) => sd(c, 'sm' + (c != null ? '' : ''))).join('')}</div>
         <div class="hn">${s.handName ? esc(s.handName) : g.turn === i ? '고민 중…' : ''}</div></div>`;
     let meBox = '', bar = '';
     if (me >= 0) {
       const s = g.seats[me];
-      meBox = `<div class="sd-me ${g.turn === me ? '' : ''}">
+      meBox = `<div class="sd-me" data-pid="${esc(s.id)}">${timerBar(s.id)}
         <div class="muted">${esc(s.name)} (나) · 보유 ${wonC(chipsOf(s.id) - (g.result ? 0 : s.contrib))} · 베팅 ${wonC(s.contrib)}${s.folded ? ' · 다이' : ''}</div>
         <div class="cards">${s.cards.map((c, k) => k === 1 && squeezing(g) ? sqCard(g, c) : sd(c, 'lg')).join('')}</div>
         <div class="hn ${squeezing(g) ? 'hid' : ''}">${esc(s.handName || '')}</div></div>`;
@@ -746,8 +872,8 @@
     const me = g.mySeat;
     const chipsOf = (id) => { const p = S.room.players.find((x) => x.id === id); return p ? p.chips : 0; };
     const opps = g.players.map((p, i) => ({ p, i })).filter((x) => x.i !== me);
-    const oppHTML = opps.map(({ p, i }) => `<div data-seat="${i}" class="opp ${g.turn === i ? 'turn' : ''}">
-      <div class="nm"><span>${esc(p.name)}</span><span style="color:#ffcf4a">${p.score}점</span></div>
+    const oppHTML = opps.map(({ p, i }) => `<div data-seat="${i}" data-pid="${esc(p.id)}" class="opp ${g.turn === i ? 'turn' : ''}">${timerBar(p.id)}
+      <div class="nm"><span>${esc(p.name)}${resvTag(p.id)}</span><span style="color:#ffcf4a">${p.score}점</span></div>
       <div class="meta">🂠 ${p.handCount}장 · ${wonC(chipsOf(p.id))}${p.go ? ` · <b style="color:#ff8a80">${p.go}고</b>` : ''}${p.shakes ? ` · 흔듦${p.shakes}` : ''}${p.ppeok ? ` · 뻑${p.ppeok}` : ''}</div>
       <div class="caps">${groupCaptured(p.captured)}</div><div class="bdg">${badgesHTML(p.captured)}</div></div>`).join('');
     // 힌트: 공개 정보(먹은 패·바닥) + 내 손패만 사용
@@ -781,7 +907,7 @@
     const idleBar = '<div class="actbar idle"><button class="btn-ghost" disabled>기다리는 중…<small>&nbsp;</small></button></div>';
     if (me >= 0) {
       const p = g.players[me];
-      mineHTML = `<div class="mine"><div class="nm"><span>${esc(p.name)} (나) · ${wonC(chipsOf(p.id))}${p.go ? ` · <b style="color:#ff8a80">${p.go}고</b>` : ''}${p.shakes ? ` · 흔듦${p.shakes}` : ''}${p.bombFlips ? ` · 폭탄패 ${p.bombFlips}` : ''}</span><span style="color:#ffcf4a">${p.score}점 / ${g.target}점</span></div><div class="caps">${groupCaptured(p.captured) || '<span class="muted">아직 먹은 패 없음</span>'}</div><div class="bdg">${badgesHTML(p.captured)}</div></div>`;
+      mineHTML = `<div class="mine" data-pid="${esc(p.id)}">${timerBar(p.id)}<div class="nm"><span>${esc(p.name)} (나) · ${wonC(chipsOf(p.id))}${p.go ? ` · <b style="color:#ff8a80">${p.go}고</b>` : ''}${p.shakes ? ` · 흔듦${p.shakes}` : ''}${p.bombFlips ? ` · 폭탄패 ${p.bombFlips}` : ''}</span><span style="color:#ffcf4a">${p.score}점 / ${g.target}점</span></div><div class="caps">${groupCaptured(p.captured) || '<span class="muted">아직 먹은 패 없음</span>'}</div><div class="bdg">${badgesHTML(p.captured)}</div></div>`;
       const playable = o && o.phase === 'play';
       const sorted = (p.hand || []).slice().sort((a, b) => (HWATU[a].m || 13) - (HWATU[b].m || 13) || a - b);
       handHTML = `<div class="hand">${sorted.map((id) => {
@@ -965,7 +1091,7 @@
   })();
 
   // ---------- 결과 (RESULT_V2) ----------
-  const resKey = () => S.room.code + ':' + S.room.round;
+  const resKey = () => (S ? S.room.code + ':' + S.room.round : '');
   const resHolding = () => !!(ui.resHold && S && S.game && S.game.result && ui.resHold.key === resKey() && Date.now() < ui.resHold.until);
   // 받침에 맞는 조사 '으로/로' (ㄹ받침·받침 없음 → 로)
   const euro = (w) => { const c = String(w || '').charCodeAt(String(w || '').length - 1) - 0xac00; if (c < 0 || c > 11171) return '(으)로'; const j = c % 28; return j === 0 || j === 8 ? '로' : '으로'; };
@@ -1050,6 +1176,25 @@
     }
     if (!ui.modal) return '';
     const m = ui.modal;
+    // 이름 바꾸기 (RENAME_V1): 로그인한 이 기기에서만. PIN 있는 계정은 지금 PIN 확인
+    if (m.type === 'rename' && ui.acct) {
+      return `<div class="modal-bg"><div class="modal rename-form acct-form"><h2>✏️ 이름 바꾸기</h2>
+        <div class="muted">지금 이름: <b>${esc(ui.acct.nickname)}</b></div>
+        <input id="rn-new" maxlength="12" placeholder="새 이름 (최대 12자)" autocomplete="off" enterkeyhint="done" value="${esc(m.val != null ? m.val : ui.acct.nickname)}">
+        ${ui.acct.hasPin ? `<input id="rn-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="지금 PIN 4자리" class="pin-in" value="${esc(m.pin || '')}">` : ''}
+        ${m.msg ? `<div class="login-msg err">${esc(m.msg)}</div>` : ''}
+        <p class="muted" style="font-size:12px">돈·순위·PIN·이 기기 자동 입장은 그대로예요. 이름은 10분에 한 번 바꿀 수 있고, 옛 이름은 다른 사람이 쓸 수 있게 돼요.</p>
+        <div class="btns"><button class="btn-primary" data-act="saveRename">바꾸기</button><button class="btn-ghost" data-act="close">취소</button></div></div></div>`;
+    }
+    // 계정 삭제 (DELETE_V1): 지금 이름을 똑같이 입력 + PIN 있는 계정은 지금 PIN
+    if (m.type === 'delAcct' && ui.acct) {
+      return `<div class="modal-bg"><div class="modal del-form acct-form"><h2 style="color:#ff8a8a">⚠️ 계정 삭제</h2>
+        <p style="font-size:14px;line-height:1.45"><b>${esc(ui.acct.nickname)}</b> 계정의 돈 <b>${won(ui.acct.balance)}</b>, 기록, 순위가 <b style="color:#ff8a8a">영구히 삭제</b>되고 <b>되돌릴 수 없어요.</b> 이 이름은 다른 사람이 쓸 수 있게 돼요.</p>
+        <input id="del-name" maxlength="12" placeholder="확인: 지금 이름 '${esc(ui.acct.nickname)}' 입력" autocomplete="off" value="${esc(m.val || '')}">
+        ${ui.acct.hasPin ? `<input id="del-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="지금 PIN 4자리" class="pin-in" value="${esc(m.pin || '')}">` : ''}
+        ${m.msg ? `<div class="login-msg err">${esc(m.msg)}</div>` : ''}
+        <div class="btns"><button class="btn-red" data-act="doDelete">영구 삭제</button><button class="btn-ghost" data-act="close">취소</button></div></div></div>`;
+    }
     if (m.type === 'choose') {
       return `<div class="modal-bg"><div class="modal"><h2>어느 패를 먹을까요?</h2>
         <div class="cards">${hw(m.card, 'lg')}</div><div class="cards">${m.choices.map((id) => hw(id, 'lg', `data-choose="${id}"`)).join('')}</div>
@@ -1139,6 +1284,8 @@
   $app.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Enter') return;
     if (ev.target.closest('.login')) { ev.preventDefault(); const b = document.querySelector('[data-act="enter"]'); if (b) b.click(); }
+    else if (ev.target.closest('.rename-form')) { ev.preventDefault(); const b = document.querySelector('[data-act="saveRename"]'); if (b) b.click(); }
+    else if (ev.target.closest('.del-form')) { ev.preventDefault(); const b = document.querySelector('[data-act="doDelete"]'); if (b) b.click(); }
     else if (ev.target.closest('.pin-form')) { ev.preventDefault(); const b = document.querySelector('[data-act="savePin"]'); if (b) b.click(); }
   });
   $app.addEventListener('click', async (ev) => {
@@ -1236,6 +1383,35 @@
       case 'havePin': ev.preventDefault(); ui.loginName = (document.getElementById('nick') || {}).value || ''; ui.needPin = true; ui.loginMsg = null; render(); { const f = document.getElementById('pin'); if (f) f.focus(); } return;
       case 'pinForm': ev.preventDefault(); ui.pinForm = true; render(); { const f = document.getElementById(ui.acct && ui.acct.hasPin ? 'pin-cur' : 'pin-new'); if (f) f.focus(); } return;
       case 'cancelPin': ui.pinForm = false; return render();
+      case 'renameForm': ev.preventDefault(); ui.modal = { type: 'rename' }; ui.pinForm = false; render(); { const f = document.getElementById('rn-new'); if (f) { f.focus(); f.select(); } } return;
+      case 'saveRename': {
+        const m = ui.modal; if (!m) return;
+        const nv = (document.getElementById('rn-new').value || '').trim();
+        const pe = document.getElementById('rn-pin');
+        m.val = nv; m.pin = pe ? pe.value.trim() : '';
+        if (!nv) { m.msg = '새 이름을 입력하세요'; return render(); }
+        if (pe && !/^\d{4}$/.test(m.pin)) { m.msg = '지금 PIN 4자리를 입력하세요'; return render(); }
+        const r = await new Promise((res) => socket.emit('rename', { nickname: nv, currentPin: pe ? m.pin : undefined }, (x) => res(x || {})));
+        if (!r.ok) { m.msg = r.error || '이름을 바꾸지 못했어요'; m.pin = ''; return render(); }
+        ui.acct = r.account; ui.modal = null;
+        LS.set('hw_name', r.account.nickname);
+        toast(`✏️ 이제 '${r.account.nickname}'(으)로 불려요`, true);
+        loadRanking();
+        return render();
+      }
+      case 'delForm': ev.preventDefault(); ui.modal = { type: 'delAcct' }; ui.pinForm = false; render(); { const f = document.getElementById('del-name'); if (f) f.focus(); } return;
+      case 'doDelete': {
+        const m = ui.modal; if (!m) return;
+        const nv = (document.getElementById('del-name').value || '').trim();
+        const pe = document.getElementById('del-pin');
+        m.val = nv; m.pin = pe ? pe.value.trim() : '';
+        if (nv !== ui.acct.nickname) { m.msg = `이름을 똑같이 입력하세요: ${ui.acct.nickname}`; return render(); }
+        if (pe && !/^\d{4}$/.test(m.pin)) { m.msg = '지금 PIN 4자리를 입력하세요'; return render(); }
+        const r = await new Promise((res) => socket.emit('deleteAccount', { confirmName: nv, currentPin: pe ? m.pin : undefined }, (x) => res(x || {})));
+        if (!r.ok) { m.msg = r.error || '삭제하지 못했어요'; m.pin = ''; return render(); }
+        accountGone('계정을 삭제했어요. 이용해 주셔서 고마워요');
+        return;
+      }
       case 'savePin': {
         const nv = (document.getElementById('pin-new').value || '').trim();
         const ce = document.getElementById('pin-cur');
@@ -1255,9 +1431,20 @@
       case 'bgm': if (FX.isMuted()) { FX.setMuted(false); FX.setBgm(true); } else FX.setBgm(!FX.isBgmOn()); toast(FX.isBgmOn() ? '🎵 배경음악 켬' : '🎵 배경음악 끔'); return render();
       case 'playSel': if (ui.sel != null) tryPlay(ui.sel); return;
       case 'flipOnly': ui.sel = null; return emit('action', { type: 'flipOnly' });
+      case 'chat': ui.chatOpen = !ui.chatOpen; setUnread(0); drawChat(); if (ui.chatOpen) { const i = document.getElementById('chat-text'); if (i && !('ontouchstart' in window)) i.focus(); } return;
+      case 'exitRoom': {
+        if (!S) return;
+        if (inMyRound()) {
+          const on = !(myRoomP() && myRoomP().leaveReserved);
+          const r = await emit('reserveLeave', { on });
+          if (r.ok && !r.leaveNow) { toast(on ? '🚪 나가기 예약됨 · 이번 판이 끝나면 방에서 나가요 (다시 누르면 취소)' : '나가기 예약을 취소했어요'); return; }
+          if (!r.leaveNow) return;
+        }
+        await emit('leave'); LS.del('hw_room'); try { cancelAnim(); } catch (e) {} S = null; urlRoom = ''; history.replaceState(null, '', '/'); return render();
+      }
       case 'leave':
         if (!(S && S.spectator) && !confirm('방에서 나갈까요?')) return;
-        await emit('leave'); LS.del('hw_room'); S = null; urlRoom = ''; history.replaceState(null, '', '/'); return render();
+        await emit('leave'); LS.del('hw_room'); try { cancelAnim(); } catch (e) {} S = null; urlRoom = ''; history.replaceState(null, '', '/'); return render();
     }
   });
 

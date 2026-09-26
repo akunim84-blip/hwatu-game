@@ -13,7 +13,13 @@ const START_CHIPS = START_MONEY; // 가상 머니 1,000,000원 (실제 돈 아�
 const accounts = new Accounts();
 const STAKES = { seotda: [5000, 10000, 50000, 100000], matgo: [500, 1000, 5000, 10000], gostop: [500, 1000, 5000, 10000] };
 const DEFAULT_STAKE = { seotda: 10000, matgo: 1000, gostop: 1000 };
-const AUTO_MS = Number(process.env.AUTO_MS || 15000); // 연결 끊긴 플레이어 자동 진행
+// 턴 타이머 (TIMER_V1): 사람 차례마다 10초. 애니메이션(패 돌리기·선 정하기·먹는 연출) 시간은 따로 더 줌
+const TURN_MS = Number(process.env.TURN_MS || 10000);
+const AUTO_MS = process.env.AUTO_MS ? Number(process.env.AUTO_MS) : null; // (시뮬레이션용) 연결 끊긴 플레이어 자동 진행 시간 덮어쓰기
+const SQUEEZE_GRACE = 1500; // 섯다: 패 받은 뒤 쪼기(스퀴즈) 볼 시간
+const TIMEOUT_TEXT = '시간 초과 — 자동으로 냈어요';
+// 채팅 (CHAT_V1)
+const CHAT_MAX = 100, CHAT_KEEP = 50, CHAT_RATE_N = 5, CHAT_RATE_MS = 5000;
 const AI_DELAY_SCALE = Number(process.env.AI_DELAY_SCALE || 1); // 시뮬레이션용 AI 지연 배율
 const AI_DEAL_WAIT = 2500; // 새 판 패 돌리기 애니메이션 동안 AI 대기 (섯다)
 const AI_DEAL_WAIT_GOSTOP = 3700; // 맞고/고스톱: 셔플(1초) + 한 장씩 돌리기(~2.4초)
@@ -63,11 +69,13 @@ function publicRoom(room) {
     code: room.code, game: room.game, gameName: GAMES[room.game].name, perPoint: room.perPoint, bonus: room.bonus,
     min: GAMES[room.game].min, max: GAMES[room.game].max,
     hostId: room.hostId, status: room.status, actSeq: room.actSeq, round: room.round, mult: room.mult,
-    players: room.players.map((p) => ({ id: p.id, name: p.name, chips: p.chips, net: p.net || 0, refilled: p.refilled || 0, member: !!p.acct, connected: p.connected, wins: p.wins, ai: !!p.ai, level: p.ai ? p.level : undefined, playing: !!(room.engine && room.engine.seatOf(p.id) >= 0) })),
+    players: room.players.map((p) => ({ id: p.id, name: p.name, chips: p.chips, net: p.net || 0, refilled: p.refilled || 0, member: !!p.acct, connected: p.connected, leaveReserved: !!p.leaveReserved, wins: p.wins, ai: !!p.ai, level: p.ai ? p.level : undefined, playing: !!(room.engine && room.engine.seatOf(p.id) >= 0) })),
     history: room.history.slice(-10),
     startChips: START_CHIPS,
     private: !!room.private,
     spectators: room.spectators.filter((x) => x.connected).map((x) => ({ id: x.id, name: x.name, waiting: !!x.waiting })),
+    // 턴 타이머: 남은 ms (애니메이션 대기 포함) · 전체 ms. 클라이언트는 받은 순간 기준으로 카운트다운
+    turn: room.turnKey && room.turnDeadline ? { pid: room.turnPid, ms: Math.max(0, room.turnDeadline - Date.now()), total: room.turnTotal } : null,
   };
 }
 
@@ -138,6 +146,7 @@ function promoteWaiting(room) {
 
 function broadcast(room) {
   room.lastActive = Date.now();
+  scheduleAuto(room); // 턴 마감 시각을 먼저 정해서 상태와 함께 보냄
   const pub = publicRoom(room);
   for (const p of room.players) {
     const view = room.engine ? room.engine.view(p.id) : null;
@@ -149,9 +158,120 @@ function broadcast(room) {
     const view = room.engine ? room.engine.view(sp.id) : null;
     for (const sid of sp.sockets) io.to(sid).emit('state', { room: pub, me: sp.id, game: view, spectator: { waiting: !!sp.waiting } });
   }
-  scheduleAuto(room);
   pushRoomList();
 }
+
+// 이름 바꾸기: 방·관전자·게임 엔진 안의 옛 플레이어 id('u:옛키')를 새 id로, 이름도 새 이름으로 (다른 사람 화면에도 바로 반영)
+function remapIds(obj, oldPid, newPid, newName, seen) {
+  if (!obj || typeof obj !== 'object' || seen.has(obj)) return;
+  seen.add(obj);
+  if (Array.isArray(obj)) {
+    for (let i = 0; i < obj.length; i++) { if (obj[i] === oldPid) obj[i] = newPid; else remapIds(obj[i], oldPid, newPid, newName, seen); }
+  } else {
+    const proto = Object.getPrototypeOf(obj);
+    if (seen.size > 1 && proto !== Object.prototype && proto !== null) return; // 엔진 안의 일반 객체·배열만 (타이머·Set 등 제외)
+    for (const k of Object.keys(obj)) {
+      if (typeof obj[k] === 'function') continue;
+      let kk = k;
+      if (k === oldPid && oldPid !== newPid) { obj[newPid] = obj[k]; delete obj[k]; kk = newPid; }
+      if (obj[kk] === oldPid) obj[kk] = newPid;
+      else remapIds(obj[kk], oldPid, newPid, newName, seen);
+    }
+    if (obj.id === newPid && typeof obj.name === 'string') obj.name = newName;
+    if (Array.isArray(obj.winners) && Array.isArray(obj.winnerNames)) obj.winners.forEach((w, i) => { if (w === newPid) obj.winnerNames[i] = newName; });
+  }
+}
+function renameInRooms(oldPid, newPid, newName) {
+  for (const room of rooms.values()) {
+    let hit = false;
+    for (const p of room.players.concat(room.spectators)) if (p.id === oldPid) { p.id = newPid; p.name = newName; if (p.acct) p.acct = newPid.slice(2); hit = true; }
+    if (!hit) continue;
+    if (room.hostId === oldPid) room.hostId = newPid;
+    if (room.lastWinner === oldPid) room.lastWinner = newPid;
+    room.history.forEach((h) => { if (h.delta && h.delta[oldPid] !== undefined) { h.delta[newPid] = h.delta[oldPid]; delete h.delta[oldPid]; } });
+    if (room.engine) remapIds(room.engine, oldPid, newPid, newName, new Set());
+    if (room.timer) { clearTimeout(room.timer); room.timer = null; } // 예약된 자동 진행은 새 id로 다시 예약 (broadcast → scheduleAuto)
+    broadcast(room);
+  }
+  pushRoomList(true);
+}
+
+// 이름 변경 반영 (본인·관리자 공통): 같은 계정 소켓 모두 새 키로, 방 자리·방 목록·순위 갱신
+function applyRename(r) {
+  if (r.newKey !== r.oldKey) {
+    for (const s of io.sockets.sockets.values()) {
+      if (s.data.acct === r.oldKey) { s.leave('acct:' + r.oldKey); s.data.acct = r.newKey; s.join('acct:' + r.newKey); }
+    }
+  }
+  renameInRooms('u:' + r.oldKey, 'u:' + r.newKey, r.account.nickname);
+  io.to('acct:' + r.newKey).emit('me', r.account);
+  pushRanking();
+}
+const inRound = (room, pid) => room.status === 'playing' && room.engine && !room.engine.over && room.engine.seatOf(pid) >= 0;
+function closeRoomIfEmpty(room) {
+  if (!room.spectators.some((x) => x.connected) && (humans(room).length === 0 || (room.solo && !humans(room).some((x) => x.connected)))) {
+    if (room.timer) { clearTimeout(room.timer); room.timer = null; }
+    rooms.delete(room.code);
+    return true;
+  }
+  return false;
+}
+// 계정이 사라짐 (본인 삭제·관리자 삭제): 접속 중인 기기 로그아웃 + 알림, 방에서 빼기
+//  (진행 중인 판이면 그 판은 계정 없는 자리로 자동 진행 후 정리 — 삭제된 계정에 돈이 다시 쓰이지 않게)
+function dropAccountEverywhere(key, text, exceptSocket) {
+  const pid = 'u:' + key;
+  for (const s of io.sockets.sockets.values()) {
+    if (s.data.acct !== key) continue;
+    if (s.data.dropRoom) s.data.dropRoom();
+    s.leave('acct:' + key); s.data.acct = null;
+    if (s !== exceptSocket) s.emit('accountDeleted', { text });
+  }
+  for (const room of [...rooms.values()]) {
+    const sp = room.spectators.find((x) => x.id === pid);
+    const p = room.players.find((x) => x.id === pid);
+    if (!sp && !p) continue;
+    room.spectators = room.spectators.filter((x) => x.id !== pid);
+    if (p) {
+      if (inRound(room, pid)) { p.acct = null; p.chips = START_CHIPS; p.connected = false; p.sockets.clear(); }
+      else {
+        room.players = room.players.filter((x) => x !== p);
+        if (room.status === 'result') { room.status = 'lobby'; room.engine = null; }
+      }
+      if (room.hostId === pid) { const nh = room.players.find((x) => !x.ai && x.connected && x.id !== pid) || room.players.find((x) => !x.ai && x.id !== pid); if (nh) room.hostId = nh.id; }
+    }
+    if (!closeRoomIfEmpty(room)) { if (room.status !== 'playing') promoteWaiting(room); broadcast(room); }
+  }
+  pushRoomList(true);
+  pushRanking();
+}
+// 관리자: 방 닫기 (모두 내보내고 방 삭제)
+function closeRoom(room, text) {
+  for (const p of room.players.concat(room.spectators)) {
+    for (const sid of p.sockets) {
+      const s = io.sockets.sockets.get(sid);
+      if (s && s.data.dropRoom) s.data.dropRoom();
+      io.to(sid).emit('kicked', { text });
+    }
+  }
+  if (room.timer) { clearTimeout(room.timer); room.timer = null; }
+  rooms.delete(room.code);
+  pushRoomList(true);
+}
+
+// ---------- 채팅 (CHAT_V1) ----------
+// 글자 정리: 앞뒤 공백·제어문자 제거, 100자, 꺾쇠(<>)는 전각으로 바꿔 HTML이 될 수 없게 (클라이언트도 한 번 더 이스케이프)
+function cleanChat(t) {
+  return String(t == null ? '' : t).replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u202e]/g, ' ').replace(/\s+/g, ' ').trim()
+    .replace(/</g, '＜').replace(/>/g, '＞').slice(0, CHAT_MAX);
+}
+function pushChat(room, msg) {
+  room.chatSeq = (room.chatSeq || 0) + 1;
+  const m = Object.assign({ n: room.chatSeq, t: Date.now() }, msg);
+  room.chat = (room.chat || []).concat(m).slice(-CHAT_KEEP);
+  io.to(room.code).emit('chat', m);
+  return m;
+}
+const sysChat = (room, text) => pushChat(room, { sys: true, text: cleanChat(text) });
 
 function currentActorId(room) {
   const e = room.engine;
@@ -160,11 +280,64 @@ function currentActorId(room) {
   return e.turn >= 0 ? e.players[e.turn].id : null;
 }
 
+// 사람 차례가 시작되기 전 연출 시간 (그동안은 시간이 안 줄어든 것처럼 10초를 온전히 줌)
+function humanGrace(room) {
+  const e = room.engine;
+  if (room.actSeq === room.roundStartSeq) return e.kind === 'seotda' ? AI_DEAL_WAIT + SQUEEZE_GRACE : AI_DEAL_WAIT_GOSTOP + (e.seon && e.seon.reason === 'draw' ? SEON_WAIT_DRAW : SEON_WAIT_WINNER);
+  if (e.kind !== 'seotda') {
+    const lc = e.lastCapture;
+    if (lc && lc.seq !== room._lcSeenH) {
+      room._lcSeenH = lc.seq;
+      const n = (lc.gained || []).length;
+      if (n) return 1850 + 35 * n + ((lc.steals || []).length ? 450 : 0);
+    }
+    return 900;
+  }
+  return 600;
+}
+// 시간 초과 자동 행동: 맞는 패 우선(AI 판단, 흔들기는 안 함), 먹을 패는 좋은 쪽, 고/스톱은 스톱, 섯다는 체크 아니면 다이
+function timeoutAction(room, pid) {
+  const e = room.engine;
+  if (e.kind === 'seotda') return e.autoAction(pid);
+  const v = e.view(pid);
+  const o = v.options;
+  if (!o) return;
+  if (o.phase === 'goStop') return e.act(pid, { type: 'stop' });
+  try {
+    const a = AI.decide(v, { level: 'normal', rand: () => 0.5 });
+    if (!a) throw new Error('no decision');
+    if (a.type === 'play') a.shake = false;
+    if (a.type === 'go') throw new Error('stop instead');
+    e.act(pid, a);
+  } catch (err) { e.autoAction(pid); }
+}
 function scheduleAuto(room) {
-  if (room.timer) { clearTimeout(room.timer); room.timer = null; }
   const actor = currentActorId(room);
+  const p = actor && room.players.find((x) => x.id === actor);
+  if (p && !p.ai) {
+    // 사람 차례: 같은 차례(같은 actSeq)면 마감 시각 유지 — 재접속·입장으로 다시 불려도 시간이 늘지 않음
+    const quick = !p.connected && AUTO_MS != null; // 시뮬레이션: 끊긴 사람은 빨리
+    const key = actor + '|' + room.round + '|' + room.actSeq + (quick ? '|q' : '');
+    if (room.turnKey === key && room.timer) return;
+    if (room.timer) { clearTimeout(room.timer); room.timer = null; }
+    const e = room.engine;
+    const grace = quick ? 0 : humanGrace(room) * AI_DELAY_SCALE;
+    const total = quick ? AUTO_MS : TURN_MS;
+    room.turnKey = key; room.turnPid = actor; room.turnTotal = total; room.turnDeadline = Date.now() + grace + total;
+    room.timer = setTimeout(() => {
+      room.timer = null;
+      if (room.turnKey !== key || currentActorId(room) !== actor || room.engine !== e || e.over) return; // 이미 냈으면 아무것도 안 함
+      room.turnKey = null;
+      try { timeoutAction(room, actor); } catch (err) { console.error('timeout', err.message); }
+      if (p.connected) for (const sid of p.sockets) io.to(sid).emit('notice', { type: 'timeout', text: TIMEOUT_TEXT });
+      afterAction(room);
+    }, grace + total);
+    if (room.timer.unref) room.timer.unref();
+    return;
+  }
+  room.turnKey = null; room.turnDeadline = null;
+  if (room.timer) { clearTimeout(room.timer); room.timer = null; }
   if (!actor) return;
-  const p = room.players.find((x) => x.id === actor);
   if (p && p.ai) {
     // AI: 사람처럼 0.7~1.5초 생각 (새 판이면 패 돌리기 애니메이션이 끝날 때까지 추가 대기)
     const e = room.engine;
@@ -188,13 +361,6 @@ function scheduleAuto(room) {
     if (room.timer.unref) room.timer.unref(); // 서버(listen)가 프로세스를 유지하므로 무해 — 테스트 종료가 빨라짐
     return;
   }
-  if (p && p.connected) return;
-  room.timer = setTimeout(() => {
-    room.timer = null;
-    if (currentActorId(room) !== actor) return;
-    try { room.engine.autoAction(actor); afterAction(room); } catch (e) { console.error('auto', e.message); }
-  }, AUTO_MS);
-  if (room.timer.unref) room.timer.unref();
 }
 
 function runAI(room, p) {
@@ -268,8 +434,40 @@ function afterAction(room) {
     room.history.push({ round: room.round, winners: r.winnerNames, nagari: !!r.nagari, delta: r.chipDelta, summary: r.nagari ? '나가리' : `${r.winnerNames.join(', ')} 승` });
     room.status = 'result';
     promoteWaiting(room); // 판이 끝나면 기다리던 사람이 AI 자리를 넘겨받음
+    if (room.players.some((p) => p.leaveReserved)) {
+      broadcast(room); // 예약한 사람도 결과(정산된 돈)를 먼저 받음
+      return processReservedLeaves(room);
+    }
   }
   broadcast(room);
+}
+// 나가기 예약 (한게임 방식): 판이 끝나고 정산된 뒤 자동으로 방에서 나감. 자리는 AI가 이어받고, 방장은 다음 사람에게,
+// 사람이 아무도 없으면 방을 닫음
+function processReservedLeaves(room) {
+  const G = GAMES[room.game];
+  for (const p of room.players.filter((x) => x.leaveReserved)) {
+    delete p.leaveReserved;
+    for (const sid of [...p.sockets]) {
+      const s = io.sockets.sockets.get(sid);
+      if (s && s.data.dropRoom) s.data.dropRoom();
+      io.to(sid).emit('reservedLeft', { text: '예약한 대로 방에서 나왔어요' });
+    }
+    p.sockets.clear(); p.connected = false;
+    sysChat(room, `${p.name}님이 나갔어요 (나가기 예약)`);
+    const k = room.players.indexOf(p);
+    room.players.splice(k, 1);
+    if (room.players.length < G.max && humans(room).length) {
+      const lvl = (room.players.find((x) => x.ai) || {}).level;
+      const bot = addAI(room, lvl || 'normal');
+      room.players.splice(room.players.indexOf(bot), 1);
+      room.players.splice(k, 0, bot); // 같은 자리에 AI
+    }
+    if (room.hostId === p.id) { const nh = room.players.find((x) => !x.ai && x.connected) || room.players.find((x) => !x.ai); if (nh) room.hostId = nh.id; }
+  }
+  if (closeRoomIfEmpty(room)) { pushRoomList(true); return; }
+  promoteWaiting(room);
+  broadcast(room);
+  pushRoomList();
 }
 
 function startRound(room) {
@@ -301,6 +499,8 @@ function startRound(room) {
 
 io.on('connection', (socket) => {
   let cur = null; // {room, player}
+  // 서버가 이 소켓을 방에서 빼야 할 때 (계정 삭제·방 닫기)
+  socket.data.dropRoom = () => { if (!cur) return; cur.player.sockets.delete(socket.id); if (!cur.player.sockets.size) cur.player.connected = false; socket.leave(cur.room.code); cur = null; };
   const fail = (cb, msg, code) => { if (typeof cb === 'function') cb({ ok: false, error: msg, code }); else socket.emit('err', msg); };
   const ok = (cb, data) => { if (typeof cb === 'function') cb(Object.assign({ ok: true }, data)); };
 
@@ -319,6 +519,7 @@ io.on('connection', (socket) => {
       p = { id: pid, name: cleanName(name), acct: acct || null, connected: true, sockets: new Set(), waiting: openSeat(room) };
       if (!acct) p.chips = START_CHIPS;
       room.spectators.push(p);
+      p.isNew = true;
     }
     if (p.waiting) promoteWaiting(room);
     if (name) p.name = cleanName(name);
@@ -328,13 +529,15 @@ io.on('connection', (socket) => {
     if (room.players.includes(p) && (!room.hostId || !room.players.some((x) => x.id === room.hostId))) room.hostId = p.id;
     cur = { room, player: p };
     socket.join(room.code);
+    socket.emit('chatHistory', { code: room.code, list: room.chat || [] }); // 새로 들어오거나 재접속하면 최근 대화
+    if (p.isNew) { delete p.isNew; if (room.players.length + room.spectators.length > 1) sysChat(room, `${p.name}님이 들어왔어요`); }
     return p;
   }
   function detach() {
     if (!cur) return;
     const { room, player } = cur;
     player.sockets.delete(socket.id);
-    if (player.sockets.size === 0) player.connected = false;
+    if (player.sockets.size === 0) { player.connected = false; delete player.leaveReserved; } // 연결이 끊기면 나가기 예약 취소
     socket.leave(room.code);
     cur = null;
     broadcast(room);
@@ -441,9 +644,33 @@ io.on('connection', (socket) => {
       ok(cb); broadcast(room);
     } catch (e) { fail(cb, e.message); }
   });
+  // 나가기 버튼: 판 진행 중이면 예약/취소 (계속 정상 플레이), 판이 아니면 바로 나가도 된다고 알려 줌 (클라이언트가 leave)
+  socket.on('reserveLeave', (d, cb) => {
+    if (!cur) return fail(cb, '방에 없습니다');
+    const { room, player } = cur;
+    if (!room.players.includes(player) || !inRound(room, player.id)) { delete player.leaveReserved; return ok(cb, { leaveNow: true }); }
+    const on = d && d.on !== undefined ? !!d.on : !player.leaveReserved;
+    if (on) player.leaveReserved = true; else delete player.leaveReserved;
+    ok(cb, { reserved: on });
+    broadcast(room);
+  });
+  // 채팅: 방 안 사람(관전자 포함)에게. 5초에 5개까지
+  socket.on('chat', (d, cb) => {
+    if (!cur) return fail(cb, '방에 없습니다');
+    const { room, player } = cur;
+    const text = cleanChat(d && d.text);
+    if (!text) return fail(cb, '내용을 입력하세요');
+    const now = Date.now();
+    const times = (socket.data.chatTimes || []).filter((t) => now - t < CHAT_RATE_MS);
+    if (times.length >= CHAT_RATE_N) { socket.data.chatTimes = times; return fail(cb, '채팅이 너무 빨라요. 잠시 후에 보내세요', 'RATE'); }
+    times.push(now); socket.data.chatTimes = times;
+    const m = pushChat(room, { pid: player.id, name: player.name, text });
+    ok(cb, { n: m.n });
+  });
   socket.on('leave', (d, cb) => {
     if (!cur) return ok(cb);
     const { room, player } = cur;
+    if (room.players.includes(player) || room.spectators.includes(player)) sysChat(room, `${player.name}님이 나갔어요`);
     const playing = room.status === 'playing' && room.engine && room.engine.seatOf(player.id) >= 0;
     player.sockets.delete(socket.id);
     socket.leave(room.code);
@@ -498,6 +725,37 @@ io.on('connection', (socket) => {
       ok(cb, { account: acct });
     } catch (e) { fail(cb, e.message, e.code); }
   });
+  // 이름 바꾸기: 로그인한 본인만 (기기 토큰/PIN으로 인증된 소켓). PIN 있는 계정은 지금 PIN 확인
+  socket.on('rename', async (d, cb) => {
+    try {
+      d = d || {};
+      if (!socket.data.acct) throw new Error('먼저 입장하세요');
+      const now = Date.now();
+      if (now - pinTries.t > 60000) { pinTries.n = 0; pinTries.t = now; }
+      if (++pinTries.n > 12) throw new Error('잠시 후 다시 시도하세요');
+      const r = await accounts.rename(socket.data.acct, d.nickname, d.currentPin);
+      applyRename(r);
+      ok(cb, { account: r.account });
+    } catch (e) { fail(cb, e.message, e.code); }
+  });
+  // 계정 삭제: 본인만. 지금 이름 입력 확인 + PIN 있는 계정은 지금 PIN. 진행 중인 판에 앉아 있으면 거부
+  socket.on('deleteAccount', async (d, cb) => {
+    try {
+      d = d || {};
+      const key = socket.data.acct;
+      if (!key) throw new Error('먼저 입장하세요');
+      const now = Date.now();
+      if (now - pinTries.t > 60000) { pinTries.n = 0; pinTries.t = now; }
+      if (++pinTries.n > 12) throw new Error('잠시 후 다시 시도하세요');
+      for (const room of rooms.values()) {
+        if (inRound(room, 'u:' + key)) return fail(cb, `${GAMES[room.game].name} 방(${room.code})에서 판이 진행 중이에요. 판이 끝나고 방에서 나간 뒤 다시 해 주세요`, 'IN_GAME');
+      }
+      const r = await accounts.remove(key, d.confirmName, d.currentPin);
+      console.log(`[account] 본인 삭제: ${r.nickname}`);
+      dropAccountEverywhere(key, '다른 기기에서 이 계정을 삭제했어요', socket);
+      ok(cb);
+    } catch (e) { fail(cb, e.message, e.code); }
+  });
   // 초대 링크용 방 정보 (공개 정보만: 게임 종류·방장 이름·상태)
   socket.on('roomInfo', (d, cb) => {
     const room = rooms.get(String((d && d.code) || '').toUpperCase().trim());
@@ -546,4 +804,6 @@ setInterval(() => {
 if (require.main === module) {
   server.listen(PORT, () => console.log(`화투 게임 서버: http://localhost:${PORT}`));
 }
-module.exports = { server, io, rooms, PORT, roomList, accounts, STAKES, settlePlayer };
+const admin = require('./lib/admin').mountAdmin(app, { accounts, rooms, io, GAMES, broadcast, pushRanking, applyRename, dropAccountEverywhere, closeRoom, inRound });
+
+module.exports = { server, io, rooms, PORT, roomList, accounts, STAKES, settlePlayer, admin };

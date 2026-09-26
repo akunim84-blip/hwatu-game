@@ -3,6 +3,8 @@
 cd "$(dirname "$0")/.."
 PORT=${PORT:-3300}
 mkdir -p run
+# 로컬 관리자 키 (.admin-key, git에 안 올라감). 배포 서버는 환경변수 ADMIN_KEY 를 직접 설정
+[ -z "$ADMIN_KEY" ] && [ -f .admin-key ] && export ADMIN_KEY="$(tr -d '\n' < .admin-key)"
 [ -f run/server.pid ] && kill $(cat run/server.pid) 2>/dev/null
 pkill -f "node server.js" 2>/dev/null
 setsid nohup bash -c "while true; do PORT=$PORT node server.js >> run/server.log 2>&1; echo 'server exited, restarting' >> run/server.log; sleep 1; done" > /dev/null 2>&1 &

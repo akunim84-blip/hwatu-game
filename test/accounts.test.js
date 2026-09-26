@@ -281,3 +281,120 @@ test('Postgres 마이그레이션: 예전 테이블(pin_hash NOT NULL)에서도 
   await C.ready;
   assert.strictEqual((await C.enter('새이름', '8080')).created, false);
 });
+
+test('이름 바꾸기: 잔액·PIN·기기 토큰 그대로, 옛 이름은 비고, 쓰는 이름·PIN·10분 제한', async () => {
+  const A = fresh('rename');
+  const r = await A.enter('철수');
+  await A.settle('철수', 234000);
+  const other = await A.enter('영희');
+  assert.ok(other.created);
+  // 이미 쓰는 이름 (대소문자·공백 규칙도 가입과 같음)
+  await assert.rejects(A.rename('철수', '영희'), (e) => e.code === 'TAKEN' && /이미 누가 쓰는 이름이에요/.test(e.message));
+  await assert.rejects(A.rename('철수', ' 영 희 '), (e) => e.code === 'TAKEN');
+  await assert.rejects(A.rename('철수', '   '), (e) => e.code === 'NAME');
+  await assert.rejects(A.rename('철수', '철수'), (e) => e.code === 'SAME');
+  await assert.rejects(A.rename('없는사람', '누구'), (e) => e.code === 'NO_ACCOUNT');
+  const t0 = 1_000_000_000_000;
+  const out = await A.rename('철수', ' 철수2<b> ', undefined, t0);
+  assert.strictEqual(out.oldKey, '철수'); assert.strictEqual(out.newKey, '철수2b');
+  assert.strictEqual(out.account.nickname, '철수2b');
+  assert.strictEqual(out.account.balance, 1234000, '잔액 그대로');
+  assert.strictEqual((await A.byToken(r.token)).nickname, '철수2b', '기기 토큰으로 계속 로그인');
+  assert.ok((await A.top(10)).some((x) => x.nickname === '철수2b' && x.balance === 1234000), '순위도 새 이름');
+  // 10분에 한 번
+  await assert.rejects(A.rename('철수2b', '철수3', undefined, t0 + 60000), (e) => e.code === 'RATE');
+  // 옛 이름은 다른 사람이 새로 쓸 수 있음 (돈은 새로 시작)
+  const fresh1 = await A.enter('철수');
+  assert.strictEqual(fresh1.created, true); assert.strictEqual(fresh1.account.balance, 1000000);
+  await A.idle();
+  const B = new Accounts({ databaseUrl: '', file: path.join(TMP, 'rename.json') }); // 재시작 후
+  const b = await B.byToken(r.token);
+  assert.strictEqual(b.nickname, '철수2b'); assert.strictEqual(b.balance, 1234000);
+  assert.strictEqual((await B.byToken(fresh1.token)).nickname, '철수');
+  // PIN 계정: 지금 PIN 필요, 틀리면 거부, 맞으면 바뀌고 PIN 그대로
+  await B.enter('핀맨', '4321');
+  await assert.rejects(B.rename('핀맨', '핀맨2'), (e) => e.code === 'NEED_PIN');
+  await assert.rejects(B.rename('핀맨', '핀맨2', '0000'), (e) => e.code === 'BAD_PIN');
+  const pr = await B.rename('핀맨', '핀맨2', '4321');
+  assert.strictEqual(pr.account.hasPin, true);
+  await assert.rejects(B.enter('핀맨2', '0000'), (e) => e.code === 'BAD_PIN');
+  assert.strictEqual((await B.enter('핀맨2', '4321')).created, false, '같은 PIN으로 새 이름 로그인');
+  // 대소문자만 바꾸기: 같은 키, 이름만
+  const c = await B.enter('abc');
+  const cr = await B.rename('abc', 'ABC');
+  assert.strictEqual(cr.newKey, 'abc'); assert.strictEqual(cr.account.nickname, 'ABC');
+  assert.strictEqual((await B.byToken(c.token)).nickname, 'ABC');
+});
+
+test('이름 바꾸기 (pg-mem): 트랜잭션으로 계정·토큰 행 이동, 쓰는 이름 거부', async () => {
+  let newDb;
+  try { ({ newDb } = require('pg-mem')); } catch (e) { return; }
+  const db = newDb();
+  const { Pool } = db.adapters.createPg();
+  const A = new Accounts({ databaseUrl: 'postgres://u:p@db.example.com/x', Pool });
+  await A.ready;
+  const r = await A.enter('민수', '1111');
+  await A.settle('민수', -100000);
+  await A.enter('지수');
+  await assert.rejects(A.rename('민수', '지수', '1111'), (e) => e.code === 'TAKEN');
+  const out = await A.rename('민수', '민수왕', '1111');
+  assert.strictEqual(out.account.balance, 900000);
+  await A.idle();
+  const B = new Accounts({ databaseUrl: 'postgres://u:p@db.example.com/x', Pool }); // 새 프로세스처럼 (캐시 없음)
+  await B.ready;
+  const a = await B.byToken(r.token);
+  assert.strictEqual(a.nickname, '민수왕'); assert.strictEqual(a.balance, 900000);
+  assert.strictEqual(db.public.many("SELECT * FROM hwatu_tokens WHERE nick_key='민수'").length, 0, '토큰 행도 새 키로');
+  assert.strictEqual(db.public.many("SELECT * FROM hwatu_accounts WHERE nick_key='민수'").length, 0);
+  assert.strictEqual((await B.enter('민수왕', '1111')).created, false);
+  assert.strictEqual((await B.enter('민수')).created, true, '옛 이름은 비어 있음');
+  // 동시에 같은 새 이름으로 바꾸기 → 하나만 성공
+  await B.enter('갑'); await B.enter('을');
+  const res = await Promise.allSettled([B.rename('갑', '병'), B.rename('을', '병')]);
+  assert.strictEqual(res.filter((x) => x.status === 'fulfilled').length, 1);
+  assert.strictEqual(res.find((x) => x.status === 'rejected').reason.code, 'TAKEN');
+});
+
+test('서버: 이름 바꾸기 → 방 자리·방장·방 목록·순위에 바로 반영, 입장 안 한 소켓·PIN 확인', async () => {
+  const H = client(); const G = client();
+  const e1 = await H.emit('enter', { nickname: '옛이름' });
+  await G.emit('enter', { nickname: '구경꾼' });
+  const cr = await H.emit('createRoom', { game: 'gostop' });
+  await G.emit('joinRoom', { code: cr.code });
+  await G.until((s) => s.room.players.length === 2);
+  const N = client();
+  const np = await N.emit('rename', { nickname: '해커' });
+  assert.strictEqual(np.ok, false, '입장 안 한 소켓은 이름 변경 불가');
+  const taken = await H.emit('rename', { nickname: '구경꾼' });
+  assert.strictEqual(taken.ok, false); assert.strictEqual(taken.code, 'TAKEN'); assert.ok(/이미 누가 쓰는 이름이에요/.test(taken.error));
+  const rn = await H.emit('rename', { nickname: '새이름짱' });
+  assert.ok(rn.ok, rn.error); assert.strictEqual(rn.account.nickname, '새이름짱'); assert.strictEqual(rn.account.balance, 1000000);
+  const st = await G.until((s) => s.room.players.some((p) => p.name === '새이름짱'));
+  assert.ok(!st.room.players.some((p) => p.name === '옛이름'), '다른 사람 화면에서도 새 이름');
+  const room = rooms.get(cr.code);
+  assert.strictEqual(room.hostId, 'u:새이름짱');
+  const info = await G.emit('roomInfo', { code: cr.code });
+  assert.strictEqual(info.room.host, '새이름짱', '방 목록 방장 이름');
+  const hs = await H.until((s) => s.me === 'u:새이름짱');
+  assert.ok(hs);
+  const rk = await G.emit('ranking');
+  assert.ok(rk.list.some((x) => x.nickname === '새이름짱') && !rk.list.some((x) => x.nickname === '옛이름'));
+  // 다른 기기: 기기 토큰으로 새 이름 자동 로그인, 같은 방에 다시 들어가도 같은 자리
+  const D = client();
+  const au = await D.emit('auth', { token: e1.token });
+  assert.ok(au.ok); assert.strictEqual(au.account.nickname, '새이름짱');
+  // 10분 제한
+  const again = await H.emit('rename', { nickname: '또바꿈' });
+  assert.strictEqual(again.code, 'RATE');
+  // PIN 계정은 지금 PIN 필요
+  const sp = await G.emit('setPin', { pin: '2222' });
+  assert.ok(sp.ok);
+  const noPin = await G.emit('rename', { nickname: '구경꾼2' });
+  assert.strictEqual(noPin.code, 'NEED_PIN');
+  const badPin = await G.emit('rename', { nickname: '구경꾼2', currentPin: '9999' });
+  assert.strictEqual(badPin.code, 'BAD_PIN');
+  const okPin = await G.emit('rename', { nickname: '구경꾼2', currentPin: '2222' });
+  assert.ok(okPin.ok); assert.strictEqual(okPin.account.hasPin, true);
+  await H.until((s) => s.room.players.some((p) => p.id === 'u:구경꾼2' && p.name === '구경꾼2'));
+  [H, G, N, D].forEach((c) => c.s.close());
+});
