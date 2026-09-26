@@ -213,3 +213,17 @@ table.sb td,table.sb th{padding:7px 4px;border-bottom:1px solid rgba(255,255,255
 .st{font-weight:800}.st-play{color:#ff8a80}.st-lobby{color:#8fe3a8}
 .spec-note{text-align:center;color:#ffcf4a}
 .turnbar.spec{color:#bfe8ff}
+/* 가상 머니 · 계정 · 순위 (WON_V1) */
+.acct .acct-row{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:15px}
+.mymoney{margin-top:6px;font-size:15px;color:#ffe08a}
+.mymoney b{font-size:20px;color:#ffcf4a;letter-spacing:.3px}
+.panel .mymoney{text-align:center}
+.acct .mymoney{text-align:left}
+.rj .rs{font-weight:600;opacity:.85;font-size:10px}
+ol.rank{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+ol.rank li{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;background:rgba(255,255,255,.06)}
+ol.rank li.me{background:rgba(255,207,74,.18);outline:1px solid rgba(255,207,74,.5)}
+ol.rank .rk{flex:none;width:26px;text-align:center;font-weight:900}
+ol.rank .rn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:700}
+ol.rank .rm{flex:none;font-weight:800;color:#ffcf4a}
+.login input{width:100%}

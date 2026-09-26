@@ -1,6 +1,7 @@
 // 폰 화면 검증: 한 화면 맞춤(스크롤 없음) + 패 돌리기/패 내기 애니메이션 스크린샷 + 콘솔 에러 확인
 // 사용법: node scripts/verify-ui.js [baseUrl] [파일이름 접두어]
 const puppeteer = require('puppeteer-core');
+const { login, authAs, pidOf } = require('./_login');
 const { io } = require('socket.io-client');
 const path = require('path');
 const fs = require('fs');
@@ -79,7 +80,7 @@ function socketBot(name) {
   for (const [game, n] of [['seotda', 5], ['matgo', 2], ['gostop', 3]]) {
     const p = await newPage(game);
     await p.goto(BASE, { waitUntil: 'networkidle0' });
-    await p.$eval('#nick', (el) => { el.value = '민수'; });
+    await login(p, '민수');
     await tap(p, `[data-game="${game}"]`);
     await tap(p, '[data-act="create"]');
     await p.waitForSelector('.code-big');

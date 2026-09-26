@@ -1,6 +1,7 @@
 // AI 대전 헤드리스 검증 (390x844): 게임별 'AI와 바로 하기' → 한 판 끝까지, 로비 AI 추가, 친구+AI 혼합, 새로고침 재접속
 // 사용법: node scripts/verify-ai.js [baseUrl]
 const puppeteer = require('puppeteer-core');
+const { login, authAs, pidOf } = require('./_login');
 const { io } = require('socket.io-client');
 const path = require('path');
 const BASE = process.argv[2] || 'http://localhost:3300';
@@ -44,7 +45,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   for (const game of ['gostop', 'matgo', 'seotda']) {
     const p = await newPage('solo-' + game);
     await p.goto(BASE, { waitUntil: 'networkidle0' });
-    await p.$eval('#nick', (el) => { el.value = '민수'; });
+    await login(p, '민수');
     await tap(p, `[data-game="${game}"]`);
     if (game === 'seotda') await tap(p, '[data-aic="3"]');
     if (game === 'seotda') await shot(p, 'ai-landing');
@@ -87,7 +88,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   // 2) 로비에서 AI 추가/빼기 + 친구 2명 + AI 1명 고스톱
   const host = await newPage('lobby');
   await host.goto(BASE, { waitUntil: 'networkidle0' });
-  await host.$eval('#nick', (el) => { el.value = '민수'; });
+  await login(host, '민수');
   await tap(host, '[data-game="gostop"]');
   await tap(host, '[data-act="create"]');
   await host.waitForSelector('.code-big');

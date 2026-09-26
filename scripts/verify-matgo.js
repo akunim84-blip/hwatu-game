@@ -2,7 +2,9 @@
 // 서버를 이 프로세스 안에서 띄워, 힌트 화면 확인용으로 판 상태를 직접 구성한다 (테스트 전용).
 // 사용법: node scripts/verify-matgo.js
 process.env.AI_DELAY_SCALE = process.env.AI_DELAY_SCALE || '1';
+if (!process.env.ACCOUNTS_FILE) process.env.ACCOUNTS_FILE = require('path').join(require('os').tmpdir(), 'hwatu-verify-accounts.json');
 const puppeteer = require('puppeteer-core');
+const { login, authAs, pidOf } = require('./_login');
 const { io } = require('socket.io-client');
 const path = require('path');
 const { server, rooms } = require('../server');
@@ -57,7 +59,7 @@ function rig(e, spec) {
   for (const game of ['matgo', 'gostop']) {
     const p = await newPage(game);
     await p.goto(BASE, { waitUntil: 'networkidle0' });
-    await p.$eval('#nick', (el) => { el.value = '민수'; });
+    await login(p, '민수');
     await tap(p, `[data-game="${game}"]`);
     await tap(p, '[data-act="solo"]');
     await p.waitForSelector('.floor', { timeout: 10000 });
@@ -74,7 +76,7 @@ function rig(e, spec) {
     // 두 번째 판에서 탭으로 건너뛰기 검증은 아래에서
     // --- 힌트 상태 구성 ---
     const code = await p.evaluate(() => localStorage.getItem('hw_room'));
-    const myPid = await p.evaluate(() => localStorage.getItem('hw_pid'));
+    const myPid = await pidOf(p);
     const room = rooms.get(code);
     const e = room.engine;
     if (game === 'matgo') {
@@ -98,6 +100,7 @@ function rig(e, spec) {
     // 같은 pid로 소켓 하나 더 붙여서 상태 방송 유도
     const s = io(BASE, { transports: ['websocket'], forceNew: true });
     await new Promise((r) => s.on('connect', r));
+    await authAs(s, p);
     await new Promise((r) => s.emit('joinRoom', { code, pid: myPid, name: '민수' }, r));
     await sleep(700);
     const hints = await p.evaluate(() => ({
@@ -159,7 +162,7 @@ function rig(e, spec) {
   {
     const p = await newPage('skip');
     await p.goto(BASE, { waitUntil: 'networkidle0' });
-    await p.$eval('#nick', (el) => { el.value = '민수'; });
+    await login(p, '민수');
     await tap(p, '[data-game="matgo"]');
     await tap(p, '[data-act="solo"]');
     await p.waitForSelector('.floor');

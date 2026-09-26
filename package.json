@@ -1,7 +1,7 @@
 {
   "name": "hwatu-game",
   "version": "1.0.0",
-  "description": "친구끼리 화투 (섯다·맞고·고스톱) - 가상 칩 전용 실시간 멀티플레이 웹게임",
+  "description": "혁게임 (고스톱·맞고·섯다) - 가상 머니 전용 실시간 멀티플레이 웹게임",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
