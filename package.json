@@ -14,10 +14,12 @@
   "license": "ISC",
   "dependencies": {
     "express": "^5.2.1",
+    "pg": "^8.23.0",
     "socket.io": "^4.8.4",
     "socket.io-client": "^4.8.4"
   },
   "devDependencies": {
+    "pg-mem": "^3.0.14",
     "puppeteer-core": "^25.12.0"
   },
   "engines": {

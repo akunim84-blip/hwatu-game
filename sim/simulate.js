@@ -5,7 +5,7 @@ const ROUNDS = Number(process.argv[2] || 200);
 let URL = process.argv[3];
 let ROOMS = null;
 const REMOTE = !!URL;
-const START = 10000;
+const START = 1000000; // 가상 머니 1,000,000원
 
 function bot(name, url) {
   const b = { pid: 'bot-' + name + '-' + Math.random().toString(36).slice(2, 8), name, state: null, lastSeq: -1, errors: 0, leaks: 0 };
@@ -86,7 +86,7 @@ async function runRoom(game, nPlayers, rounds, label, opts = {}) {
         const key = res.nagari ? '나가리' : res.game === 'seotda' && res.reason ? '다이승' : '승부';
         stats.results[key] = (stats.results[key] || 0) + 1;
         const sum = r.players.reduce((s, p) => s + p.chips, 0);
-        if (sum !== START * r.players.length) stats.conservationFail++;
+        if (sum !== START * r.players.length + r.players.reduce((s, p) => s + (p.refilled || 0), 0)) stats.conservationFail++; // 파산 리셋/AI 충전분은 보정
         const dsum = Object.values(res.chipDelta).reduce((a, x) => a + x, 0);
         if (dsum !== 0) stats.conservationFail++;
         if (stats.rounds >= rounds) { done = true; resolveDone(); return; }
@@ -144,7 +144,7 @@ async function runRoom(game, nPlayers, rounds, label, opts = {}) {
   stats.leaks = bots.reduce((s, b) => s + b.leaks, 0);
   stats.finalChips = host.state.room.players.map((p) => p.chips);
   stats.chipTotal = stats.finalChips.reduce((a, b) => a + b, 0);
-  stats.expectedTotal = START * nPlayers;
+  stats.expectedTotal = START * nPlayers + host.state.room.players.reduce((s, p) => s + (p.refilled || 0), 0);
   bots.forEach((b) => b.sock.disconnect());
   return stats;
 }
@@ -186,7 +186,7 @@ async function runRoom(game, nPlayers, rounds, label, opts = {}) {
     summary[name] = s;
     const ok = !s.stuck && !s.invalidAccepted && s.conservationFail === 0 && s.leaks === 0 && s.chipTotal === s.expectedTotal;
     if (!ok) fail = true;
-    console.log(`${ok ? 'PASS' : 'FAIL'} ${name}: ${s.rounds}판 완료, 결과 ${JSON.stringify(s.results)}, 칩합계 ${s.chipTotal}/${s.expectedTotal}, 보존실패 ${s.conservationFail}, 정보누출 ${s.leaks}, 재접속 ${s.reconnects}, 거부된 부정행동 ${s.invalidRejected}, 거부된 봇 행동 ${s.errors}${s.stuck ? ', STUCK' : ''}`);
+    console.log(`${ok ? 'PASS' : 'FAIL'} ${name}: ${s.rounds}판 완료, 결과 ${JSON.stringify(s.results)}, 머니합계 ${s.chipTotal}/${s.expectedTotal}, 보존실패 ${s.conservationFail}, 정보누출 ${s.leaks}, 재접속 ${s.reconnects}, 거부된 부정행동 ${s.invalidRejected}, 거부된 봇 행동 ${s.errors}${s.stuck ? ', STUCK' : ''}`);
   }
   const tot = (f) => Object.values(summary).reduce((a, s) => a + f(s), 0);
   const sdR = ['섯다 2인', '섯다 3인', '섯다 4인', '섯다 5인'].reduce((a, k) => a + summary[k].rounds, 0);

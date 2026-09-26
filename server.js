@@ -6,9 +6,13 @@ const { SeotdaGame } = require('./lib/seotda');
 const { GoStopGame } = require('./lib/gostop');
 const { rngInt } = require('./lib/util');
 const AI = require('./lib/ai');
+const { Accounts, START_MONEY, BANKRUPT_MONEY } = require('./lib/accounts');
 
 const PORT = Number(process.env.PORT || 3300);
-const START_CHIPS = 10000;
+const START_CHIPS = START_MONEY; // 가상 머니 1,000,000원 (실제 돈 아님)
+const accounts = new Accounts();
+const STAKES = { seotda: [5000, 10000, 50000, 100000], matgo: [500, 1000, 5000, 10000], gostop: [500, 1000, 5000, 10000] };
+const DEFAULT_STAKE = { seotda: 10000, matgo: 1000, gostop: 1000 };
 const AUTO_MS = Number(process.env.AUTO_MS || 15000); // 연결 끊긴 플레이어 자동 진행
 const AI_DELAY_SCALE = Number(process.env.AI_DELAY_SCALE || 1); // 시뮬레이션용 AI 지연 배율
 const AI_DEAL_WAIT = 2500; // 새 판 패 돌리기 애니메이션 동안 AI 대기 (섯다)
@@ -57,7 +61,7 @@ function publicRoom(room) {
     code: room.code, game: room.game, gameName: GAMES[room.game].name, perPoint: room.perPoint, bonus: room.bonus,
     min: GAMES[room.game].min, max: GAMES[room.game].max,
     hostId: room.hostId, status: room.status, actSeq: room.actSeq, round: room.round, mult: room.mult,
-    players: room.players.map((p) => ({ id: p.id, name: p.name, chips: p.chips, connected: p.connected, wins: p.wins, ai: !!p.ai, level: p.ai ? p.level : undefined, playing: !!(room.engine && room.engine.seatOf(p.id) >= 0) })),
+    players: room.players.map((p) => ({ id: p.id, name: p.name, chips: p.chips, net: p.net || 0, refilled: p.refilled || 0, member: !!p.acct, connected: p.connected, wins: p.wins, ai: !!p.ai, level: p.ai ? p.level : undefined, playing: !!(room.engine && room.engine.seatOf(p.id) >= 0) })),
     history: room.history.slice(-10),
     startChips: START_CHIPS,
     private: !!room.private,
@@ -97,6 +101,11 @@ function pushRoomList(now) {
   if (!roomsTimer) { roomsTimer = setTimeout(send, 300); if (roomsTimer.unref) roomsTimer.unref(); }
 }
 // 사람을 자리에 앉힘 (빈 자리 → 뒤쪽 AI 자리 교체). 앉혔으면 true
+// 사람의 현재 잔액: 계정이면 저장된 잔액, 손님이면 방 안에서만 1,000,000원
+function moneyOf(p) {
+  if (p.acct) { const a = accounts.cache.get(p.acct); if (a) return a.balance; }
+  return p.chips != null ? p.chips : START_CHIPS;
+}
 function seatHuman(room, sp) {
   const G = GAMES[room.game];
   if (room.players.length >= G.max) {
@@ -107,7 +116,7 @@ function seatHuman(room, sp) {
   }
   room.spectators = room.spectators.filter((x) => x !== sp);
   // 같은 객체를 플레이어로 전환 (소켓 연결 정보 유지)
-  Object.assign(sp, { chips: START_CHIPS, wins: 0 });
+  Object.assign(sp, { chips: moneyOf(sp), wins: 0, net: 0 });
   delete sp.waiting;
   room.players.push(sp);
   if (!room.players.some((x) => x.id === room.hostId && !x.ai && x.connected)) room.hostId = sp.id;
@@ -169,10 +178,8 @@ function scheduleAuto(room) {
         if (n) { ms = 1850 + 35 * n + ((lc.steals || []).length ? 450 : 0) + Math.random() * 450; room._animUntil = Date.now() + ms; }
       } else if (room._animUntil) ms = Math.max(ms, room._animUntil - Date.now()); // 다시 예약돼도(입장·연결 변화) 애니메이션 끝까지 기다림
     }
-    if (process.env.DBG_AI) console.log('SCHED', Date.now() % 100000, Math.round(ms), room.actSeq, JSON.stringify(e.lastCapture));
     room.timer = setTimeout(() => {
       room.timer = null;
-      if (process.env.DBG_AI) console.log('RUNAI', Date.now() % 100000);
       if (currentActorId(room) !== actor || room.engine !== e) return;
       runAI(room, p);
     }, ms * AI_DELAY_SCALE);
@@ -206,11 +213,41 @@ function addAI(room, level) {
   if (room.players.length >= G.max) throw new Error('빈 자리가 없습니다');
   const used = new Set(room.players.map((x) => x.name));
   const base = AI.AI_NAMES.find((n) => !used.has('🤖 ' + n)) || 'AI봇';
-  const p = { id: 'ai-' + Math.random().toString(36).slice(2, 10), name: '🤖 ' + base, chips: START_CHIPS, connected: true, sockets: new Set(), wins: 0, ai: true, level: level === 'easy' ? 'easy' : 'normal' };
+  const p = { id: 'ai-' + Math.random().toString(36).slice(2, 10), name: '🤖 ' + base, chips: START_CHIPS, net: 0, connected: true, sockets: new Set(), wins: 0, ai: true, level: level === 'easy' ? 'easy' : 'normal' };
   room.players.push(p);
   return p;
 }
 const humans = (room) => room.players.filter((x) => !x.ai);
+
+// 판 정산 (가상 머니): 계정은 저장소에 바로 기록, 0원 이하 → 파산 300,000원 (AI는 조용히 1,000,000원 충전)
+function settlePlayer(room, p, d) {
+  p.net = (p.net || 0) + d;
+  if (p.acct && accounts.cache.has(p.acct)) {
+    const a = accounts.cache.get(p.acct);
+    const r = accounts.settleCached(a, d);
+    p.chips = r.balance;
+    room.saving = r.saved.catch((e) => console.error('정산 저장 실패', p.acct, e.message));
+    if (r.bankrupt) notifyBankrupt(p);
+    io.to('acct:' + a.key).emit('me', accounts.pub(a));
+    return;
+  }
+  p.chips += d;
+  if (p.chips <= 0) {
+    const before = p.chips;
+    p.chips = p.ai ? START_CHIPS : BANKRUPT_MONEY;
+    p.refilled = (p.refilled || 0) + (p.chips - before);
+    if (!p.ai) notifyBankrupt(p);
+  }
+}
+function notifyBankrupt(p) {
+  for (const sid of p.sockets) io.to(sid).emit('notice', { type: 'bankrupt', text: '파산! 300,000원으로 다시 시작' });
+}
+let rankTimer = null;
+function pushRanking() {
+  if (rankTimer) return;
+  rankTimer = setTimeout(async () => { rankTimer = null; try { io.to('lobby-watch').emit('ranking', await accounts.top(10)); } catch (e) {} }, 1500);
+  if (rankTimer.unref) rankTimer.unref();
+}
 
 function afterAction(room) {
   room.actSeq++;
@@ -220,8 +257,9 @@ function afterAction(room) {
     const r = e.result;
     for (const [pid, d] of Object.entries(r.chipDelta)) {
       const p = room.players.find((x) => x.id === pid);
-      if (p) p.chips += d;
+      if (p) settlePlayer(room, p, d);
     }
+    pushRanking();
     for (const w of r.winners) { const p = room.players.find((x) => x.id === w); if (p) p.wins++; }
     if (room.game !== 'seotda') room.mult = r.nagari ? Math.min(room.mult * 2, 8) : 1;
     room.lastWinner = r.winners[0] || room.lastWinner;
@@ -240,6 +278,7 @@ function startRound(room) {
   seated = room.players.slice(0, G.max);
   if (seated.length < G.min) throw new Error(`${G.name}은(는) ${G.min}명 이상 필요합니다`);
   if (room.game !== 'seotda' && seated.length !== G.min) throw new Error(`${G.name}은(는) ${G.min}명이 필요합니다`);
+  seated.forEach((p) => { if (p.acct) p.chips = moneyOf(p); }); // 다른 방에서 바뀐 잔액 반영
   room.round++;
   const ps = seated.map((p) => ({ id: p.id, name: p.name }));
   if (room.game === 'seotda') {
@@ -261,11 +300,20 @@ io.on('connection', (socket) => {
   const fail = (cb, msg) => { if (typeof cb === 'function') cb({ ok: false, error: msg }); else socket.emit('err', msg); };
   const ok = (cb, data) => { if (typeof cb === 'function') cb(Object.assign({ ok: true }, data)); };
 
-  function attach(room, pid, name) {
+  // 로그인한 계정이면 계정 기준 id/닉네임, 아니면 손님(테스트·시뮬레이션용)
+  function ident(d) {
+    if (socket.data.acct) { const a = accounts.cache.get(socket.data.acct); return { pid: 'u:' + socket.data.acct, name: a ? a.nickname : d.name, acct: socket.data.acct }; }
+    if (!d.pid) throw new Error('pid 필요');
+    const pid = String(d.pid);
+    if (pid.startsWith('u:')) throw new Error('로그인이 필요합니다');
+    return { pid, name: d.name, acct: null };
+  }
+  function attach(room, pid, name, acct) {
     let p = room.players.find((x) => x.id === pid) || room.spectators.find((x) => x.id === pid);
     if (!p) {
       // 새로 온 사람: 판 사이면 바로 자리(빈 자리/AI 자리), 판 진행 중이면 관전 → 다음 판부터 AI 자리 넘겨받기, 사람으로 꽉 차면 관전만
-      p = { id: pid, name: cleanName(name), connected: true, sockets: new Set(), waiting: openSeat(room) };
+      p = { id: pid, name: cleanName(name), acct: acct || null, connected: true, sockets: new Set(), waiting: openSeat(room) };
+      if (!acct) p.chips = START_CHIPS;
       room.spectators.push(p);
     }
     if (p.waiting) promoteWaiting(room);
@@ -292,11 +340,11 @@ io.on('connection', (socket) => {
     try {
       d = d || {};
       const game = GAMES[d.game] ? d.game : 'seotda';
-      const perPoint = Math.max(1, Math.min(10000, Math.floor(Number(d.perPoint) || 100)));
-      if (!d.pid) throw new Error('pid 필요');
+      const perPoint = Math.max(1, Math.min(100000, Math.floor(Number(d.perPoint) || DEFAULT_STAKE[game])));
+      const who = ident(d);
       const room = createRoom(game, perPoint, d.bonus, d.private);
-      attach(room, String(d.pid), d.name);
-      room.hostId = String(d.pid);
+      attach(room, who.pid, who.name, who.acct);
+      room.hostId = who.pid;
       if (d.ai) {
         // 'AI와 바로 하기': AI로 자리를 채우고 바로 시작
         const n = game === 'seotda' ? Math.max(1, Math.min(4, Math.floor(Number(d.aiCount) || 3))) : GAMES[game].min - 1;
@@ -313,8 +361,8 @@ io.on('connection', (socket) => {
       d = d || {};
       const room = rooms.get(String(d.code || '').toUpperCase().trim());
       if (!room) throw new Error('방을 찾을 수 없습니다');
-      if (!d.pid) throw new Error('pid 필요');
-      attach(room, String(d.pid), d.name);
+      const who = ident(d);
+      attach(room, who.pid, who.name, who.acct);
       ok(cb, { code: room.code });
       broadcast(room);
     } catch (e) { fail(cb, e.message); }
@@ -358,7 +406,7 @@ io.on('connection', (socket) => {
       const { room, player } = cur;
       if (room.hostId !== player.id) throw new Error('방장만 가능합니다');
       if (room.status === 'playing') throw new Error('게임 중에는 초기화할 수 없습니다');
-      room.players.forEach((p) => { p.chips = START_CHIPS; p.wins = 0; });
+      room.players.forEach((p) => { if (!p.acct) p.chips = START_CHIPS; p.wins = 0; p.net = 0; }); // 계정 잔액은 그대로 (기록만 초기화)
       room.history = [];
       room.mult = 1;
       ok(cb);
@@ -416,6 +464,38 @@ io.on('connection', (socket) => {
     } else { if (room.status !== 'playing') promoteWaiting(room); broadcast(room); }
     ok(cb);
   });
+  // ---------- 계정 (닉네임 + PIN) ----------
+  const bindAcct = (a) => {
+    if (socket.data.acct && socket.data.acct !== a.key) socket.leave('acct:' + socket.data.acct);
+    socket.data.acct = a.key; socket.join('acct:' + a.key);
+  };
+  const pinTries = { n: 0, t: 0 };
+  socket.on('enter', async (d, cb) => {
+    try {
+      d = d || {};
+      const now = Date.now();
+      if (now - pinTries.t > 60000) { pinTries.n = 0; pinTries.t = now; }
+      if (++pinTries.n > 8) throw new Error('잠시 후 다시 시도하세요');
+      const r = await accounts.enter(d.nickname, d.pin);
+      bindAcct({ key: r.key });
+      ok(cb, { token: r.token, account: r.account, created: r.created });
+    } catch (e) { fail(cb, e.message); }
+  });
+  socket.on('auth', async (d, cb) => {
+    try {
+      const a = await accounts.byToken(d && d.token);
+      if (!a) throw new Error('다시 로그인해 주세요');
+      bindAcct(a);
+      ok(cb, { account: accounts.pub(a) });
+    } catch (e) { fail(cb, e.message); }
+  });
+  socket.on('logout', async (d, cb) => {
+    try { if (d && d.token) await accounts.logout(d.token); } catch (e) {}
+    if (socket.data.acct) socket.leave('acct:' + socket.data.acct);
+    socket.data.acct = null;
+    ok(cb);
+  });
+  socket.on('ranking', async (d, cb) => { try { ok(cb, { list: await accounts.top(10) }); } catch (e) { fail(cb, e.message); } });
   socket.on('watchRooms', (d, cb) => { socket.join('lobby-watch'); socket.emit('rooms', roomList()); ok(cb); });
   socket.on('unwatchRooms', () => socket.leave('lobby-watch'));
   socket.on('setPrivate', (d, cb) => {
@@ -443,4 +523,4 @@ setInterval(() => {
 if (require.main === module) {
   server.listen(PORT, () => console.log(`화투 게임 서버: http://localhost:${PORT}`));
 }
-module.exports = { server, io, rooms, PORT, roomList };
+module.exports = { server, io, rooms, PORT, roomList, accounts, STAKES, settlePlayer };
