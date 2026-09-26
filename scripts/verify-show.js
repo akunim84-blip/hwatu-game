@@ -70,6 +70,8 @@ function rig(e, spec) {
     await sleep(250);
     await shot(p, 'start-stamp');
     report.bgmGame = await p.evaluate(() => HwatuFX._bgm());
+    await p.waitForFunction(() => { const v = HwatuFX._voice(); return v.total && v.loaded + v.failed >= v.total; }, { timeout: 15000 }).catch(() => {});
+    report.voice = await p.evaluate(() => ({ st: HwatuFX._voice(), godori: HwatuFX.say('고도리'), go7: HwatuFX.voiceKey('7고'), unknown: HwatuFX.say('없는말') }));
     await sleep(4200);
     report.afterDeal = await p.evaluate(() => ({ seon: !!document.querySelector('.seon'), hand: document.querySelectorAll('.hand .card').length, hidden: document.querySelectorAll('.fx-hide').length }));
     // 배경음악 토글 → 저장

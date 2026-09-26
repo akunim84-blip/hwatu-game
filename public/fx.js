@@ -37,7 +37,7 @@
     if (c.state === 'running') done();
   }
   const EVS = ['pointerdown', 'touchstart', 'touchend', 'mousedown', 'keydown', 'click'];
-  function done() { EVS.forEach((e) => document.removeEventListener(e, unlock, true)); setTimeout(() => { try { bgmApply(); } catch (e) {} }, 0); }
+  function done() { EVS.forEach((e) => document.removeEventListener(e, unlock, true)); setTimeout(() => { try { bgmApply(); loadVoices(); } catch (e) {} }, 0); }
   EVS.forEach((e) => document.addEventListener(e, unlock, { capture: true, passive: true }));
   document.addEventListener('visibilitychange', () => { if (!document.hidden && ctx && ctx.state !== 'running') { try { ctx.resume(); } catch (e) {} } });
 
@@ -310,6 +310,60 @@
     });
     return t - c.currentTime;
   }
+
+  // ---- 사람 목소리 외침 (VOICE_V1): /voice/<key>.webm|mp3 (manifest.json). 첫 터치 뒤 미리 받아 두고, 없으면 합성음으로 대신 ----
+  // 직접 녹음으로 바꾸려면 public/voice/<key>.mp3 (+ .webm)를 같은 이름으로 덮어쓰면 됨 (key 목록: manifest.json)
+  const VOICE_KEY = { '고': 'go', '스톱': 'stop', '뻑': 'ppeok', '뻑먹기': 'ppeok_eat', '삼뻑': 'ppeok3', '3뻑': 'ppeok3', '따닥': 'ttadak', '쪽': 'jjok', '싹쓸이': 'sseul', '쓸': 'sseul',
+    '흔들기': 'shake', '폭탄': 'bomb', '고도리': 'godori', '홍단': 'hongdan', '청단': 'cheongdan', '초단': 'chodan', '삼광': 'gwang3', '비삼광': 'bigwang3', '사광': 'gwang4', '오광': 'gwang5',
+    '광박': 'gwangbak', '피박': 'pibak', '고박': 'gobak', '나가리': 'nagari', '선': 'seon', '시작': 'start', '판시작': 'start', '승리': 'win', '패배': 'lose',
+    '38광땡': 'sd_38', '18광땡': 'sd_18', '13광땡': 'sd_13', '장땡': 'sd_jang', '암행어사': 'sd_amhaeng', '땡잡이': 'sd_ddaengjabi', '멍텅구리구사': 'sd_mgusa', '구사': 'sd_gusa',
+    '알리': 'sd_ali', '독사': 'sd_doksa', '구삥': 'sd_gubbing', '장삥': 'sd_jangbbing', '장사': 'sd_jangsa', '세륙': 'sd_seryuk', '갑오': 'sd_gabo', '망통': 'sd_mangtong' };
+  function voiceKey(t) {
+    t = String(t || '').replace(/[\s!.~]/g, '');
+    if (VOICE_KEY[t]) return VOICE_KEY[t];
+    let m = /^(\d+)고$/.exec(t); if (m) return +m[1] >= 1 && +m[1] <= 5 ? 'go' + m[1] : 'go';
+    m = /^([1-9])땡$/.exec(t); if (m) return 'sd_d' + m[1];
+    m = /^([1-8])끗$/.exec(t); if (m) return 'sd_k' + m[1];
+    return null;
+  }
+  const vclip = { man: null, buf: {}, started: false, failed: 0 };
+  function decodeAB(c, ab) { return new Promise((res) => { try { const p = c.decodeAudioData(ab, res, () => res(null)); if (p && p.catch) p.catch(() => res(null)); } catch (e) { res(null); } }); }
+  async function loadVoices() {
+    if (vclip.started || !ctx || !window.fetch) return;
+    vclip.started = true;
+    try { const r = await fetch('/voice/manifest.json'); if (!r.ok) throw 0; vclip.man = await r.json(); } catch (e) { vclip.man = null; return; }
+    let webm = false;
+    try { webm = document.createElement('audio').canPlayType('audio/webm; codecs=opus') !== ''; } catch (e) {}
+    const keys = Object.keys(vclip.man.clips || {});
+    let i = 0;
+    const worker = async () => {
+      while (i < keys.length) {
+        const k = keys[i++];
+        for (const ext of webm ? ['webm', 'mp3'] : ['mp3']) {
+          try { const r = await fetch('/voice/' + k + '.' + ext); if (!r.ok) continue; const b = await decodeAB(ctx, await r.arrayBuffer()); if (b) { vclip.buf[k] = b; break; } } catch (e) {}
+        }
+        if (!vclip.buf[k]) vclip.failed++;
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+  }
+  function playClip(key, delay, vol) {
+    const c = ready(); if (!c || !key) return false;
+    const b = vclip.buf[key]; if (!b) return false;
+    try {
+      const s = c.createBufferSource(); s.buffer = b;
+      const g = c.createGain(); g.gain.value = vol || 0.9;
+      s.connect(g); g.connect(master); s.start(c.currentTime + (delay || 0));
+      duck(b.duration + 0.5);
+      return true;
+    } catch (e) { return false; }
+  }
+  // 외침: 녹음(클립)이 있으면 사람 목소리, 아직 못 받았거나 실패하면 예전 합성음
+  function say(text, opts) {
+    opts = opts || {};
+    if (playClip(voiceKey(text), opts.delay, opts.vol)) return 'clip';
+    voice(text, opts); return 'synth';
+  }
   // 도장 찍힐 때: 좋은 일(황금 금관 + 북) / 나쁜 일(축 처지는 소리) / 고(올라감) / 스톱(쾅쾅)
   function stampSnd(kind, text) {
     const c = ready(); if (!c) return;
@@ -337,7 +391,7 @@
       const g = env(c, t, 0.25, 0.14); n.connect(hp); hp.connect(g); g.connect(bus);
       if (kind === 'stop') kung(c, t + 0.16, 1, bus);
     }
-    if (text) voice(text, { delay: 0.12, rise: kind === 'go', pitch: kind === 'bad' ? 190 : 240 });
+    if (text) say(text, { delay: 0.12, rise: kind === 'go', pitch: kind === 'bad' ? 190 : 240 });
   }
   function coin(vol) { // 동전 짤랑
     const c = ready(); if (!c) return;
@@ -419,6 +473,7 @@
   function clearLayer() { if (layer) layer.innerHTML = ''; }
 
   window.HwatuFX = { getLayer, tak, tick, shuffle, swish, beep, unlock, isMuted: () => muted, setMuted, fly, clearLayer, canAnimate,
-    music, setBgm, isBgmOn: () => bgmOn, duck, voice, stampSnd, coin, jingle, rub,
+    music, setBgm, isBgmOn: () => bgmOn, duck, voice, say, voiceKey, stampSnd, coin, jingle, rub,
+    _voice: () => ({ loaded: Object.keys(vclip.buf).length, total: vclip.man ? Object.keys(vclip.man.clips || {}).length : 0, failed: vclip.failed }),
     _bgm: () => ({ want: bgm.want, cur: bgm.cur, playing: !!bgm.timer, ctx: ctx ? ctx.state : null }) };
 })();

@@ -99,7 +99,7 @@
     const flipAt = 450, step = 380, n = draw ? o.rows.length : 0;
     if (draw) for (let i = 0; i < n; i++) setTimeout(() => { if (my === sgen) { el.querySelectorAll('.seon-p')[i].classList.add('flip'); try { FX.tak && FX.tak(0.7); } catch (e) {} } }, flipAt + i * step);
     const decide = draw ? flipAt + n * step + 150 : 250;
-    setTimeout(() => { if (my !== sgen) return; el.classList.add('decided'); if (draw) try { FX.voice && FX.voice('선', { pitch: 250 }); } catch (e) {} }, decide);
+    setTimeout(() => { if (my !== sgen) return; el.classList.add('decided'); if (draw) try { FX.say && FX.say('선', { pitch: 250 }); } catch (e) {} }, decide);
     const endAt = decide + (draw ? 900 : 700);
     setTimeout(() => {
       if (my !== sgen) return;
@@ -116,8 +116,8 @@
     el.className = 'end-bn ' + kind;
     el.innerHTML = `${kind === 'win' ? '<div class="st-rays"></div>' : ''}<div class="eb-t">${esc(text)}</div>${sub ? `<div class="eb-s">${esc(sub)}</div>` : ''}`;
     L().appendChild(el);
-    if (kind === 'win') { burst('win'); try { FX.jingle && FX.jingle(true); FX.voice && FX.voice('승리', { delay: 0.35, pitch: 250 }); } catch (e) {} }
-    else if (kind === 'lose') { burst('lose'); try { FX.jingle && FX.jingle(false); } catch (e) {} }
+    if (kind === 'win') { burst('win'); try { FX.jingle && FX.jingle(true); FX.say && FX.say('승리', { delay: 0.35, pitch: 250 }); } catch (e) {} }
+    else if (kind === 'lose') { burst('lose'); try { FX.jingle && FX.jingle(false); FX.say && FX.say('패배', { delay: 0.3, pitch: 190 }); } catch (e) {} }
     else { try { FX.stampSnd && FX.stampSnd('bad', '나가리'); } catch (e) {} }
     setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 350); }, 1500);
   }

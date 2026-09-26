@@ -141,7 +141,7 @@
         const before = new Set(H.completed(pg.players[i].captured));
         H.completed(pl.captured).filter((x) => !before.has(x)).forEach((x) => {
           const st = YAKU_STAMP[x];
-          if (st) SH.stamp(st[0], 'gold', { sub: (i === g.mySeat ? '나' : pl.name) + (st[1] ? ' · ' + st[1] : ''), delay: 650 });
+          if (st) SH.stamp(st[0], 'gold', { say: st[2] || st[0], sub: (i === g.mySeat ? '나' : pl.name) + (st[1] ? ' · ' + st[1] : ''), delay: 650 });
           setTimeout(() => toast(`🎉 ${pl.name} ${x} 완성!`, !st), 550);
         });
       });
@@ -620,7 +620,7 @@
         <div class="row"><input id="code" maxlength="5" placeholder="방 코드 5자리" style="text-transform:uppercase" value="${esc(urlRoom)}"><button class="btn-blue" style="flex:0 0 90px" data-act="join">참여</button></div>
       </div>
       <div class="panel rank-panel"><h3>🏆 순위 <small class="muted">가진 돈 Top 10</small></h3><div id="rank-list">${rankHTML()}</div></div>
-      <p class="notice">※ <b>${DISCLAIMER}</b>.<br>실제 돈·현금·경품과 교환되지 않으며 결제 기능이 없습니다. 0원이 되면 300,000원으로 다시 시작해요.<br><span style="opacity:.7">카드 그림: Wikimedia Commons “Hwatu” 세트 (Spenĉjo, Louie Mantia Jr. 원작 기반), <a href="/cards/LICENSE.txt" style="color:#ffcf4a">CC BY-SA 4.0</a><br>배경음악·효과음·연출: 혁게임 자체 제작 (브라우저 Web Audio로 실시간 합성, 외부 음원 없음)</span></p>
+      <p class="notice">※ <b>${DISCLAIMER}</b>.<br>실제 돈·현금·경품과 교환되지 않으며 결제 기능이 없습니다. 0원이 되면 300,000원으로 다시 시작해요.<br><span style="opacity:.7">카드 그림: Wikimedia Commons “Hwatu” 세트 (Spenĉjo, Louie Mantia Jr. 원작 기반), <a href="/cards/LICENSE.txt" style="color:#ffcf4a">CC BY-SA 4.0</a><br>배경음악·효과음·연출: 혁게임 자체 제작 (Web Audio 실시간 합성)<br>외침 목소리: <a href="https://github.com/myshell-ai/MeloTTS" style="color:#ffcf4a">MeloTTS</a> 한국어 모델(MyShell.ai, MIT 라이선스)로 생성</span></p>
     </div>`;
   }
 
@@ -814,7 +814,7 @@
 
   // ---------- 연출 (SHOW_V1) ----------
   // 족보 완성 → 큰 도장 (엔진이 실제로 계산한 족보만: shared/hints completed)
-  const YAKU_STAMP = { '고도리': ['고도리'], '홍단': ['홍단'], '청단': ['청단'], '초단': ['초단'], '3광': ['삼광'], '비광 3광': ['삼광', '비광 포함'], '4광': ['사광'], '5광': ['오광'] };
+  const YAKU_STAMP = { '고도리': ['고도리'], '홍단': ['홍단'], '청단': ['청단'], '초단': ['초단'], '3광': ['삼광'], '비광 3광': ['삼광', '비광 포함', '비삼광'], '4광': ['사광'], '5광': ['오광'] };
   // 엔진 이벤트 문구 → 도장 (lib/gostop.js events 그대로. 없는 이벤트는 만들지 않음)
   function eventStamp(e, g) {
     const m = /^(.+?): (.+)$/.exec(e);
