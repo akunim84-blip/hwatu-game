@@ -24,7 +24,7 @@
   };
 
   let S = null; // 최신 서버 상태 {room, me, game}
-  let ui = { modal: null, sel: null, lastSeq: -1, create: { game: 'seotda', stake: { seotda: 10000, matgo: 1000, gostop: 1000 }, bonus: true, level: LS.get('hw_ai_level') || 'normal', aiCount: 3 }, lastTurnMine: false };
+  let ui = { modal: null, sel: null, lastSeq: -1, create: { game: 'seotda', stake: { seotda: 10000, matgo: 1000, gostop: 1000 }, bonus: true, level: LS.get('hw_ai_level') || 'normal', aiCount: 3 }, lastTurnMine: false, sqDone: {}, sqP: {} };
   const socket = io({ transports: ['websocket', 'polling'] });
 
   // ---------- 유틸 ----------
@@ -47,6 +47,7 @@
   }
   const FX = window.HwatuFX;
   const beep = (f, d) => FX.beep(f, d);
+  const SH = window.HwatuShow; // 연출 (SHOW_V1): 도장·선 정하기·승패 배너 — show.js
   function emit(ev, data) {
     return new Promise((res) => socket.emit(ev, data, (r) => { if (r && !r.ok) toast(r.error || '오류'); res(r || {}); }));
   }
@@ -138,14 +139,19 @@
     if (g && pg && g.kind !== 'seotda' && pg.kind === g.kind && prev.room.round === r.round && pg.players.length === g.players.length) {
       g.players.forEach((pl, i) => {
         const before = new Set(H.completed(pg.players[i].captured));
-        H.completed(pl.captured).filter((x) => !before.has(x)).forEach((x) => setTimeout(() => toast(`🎉 ${pl.name} ${x} 완성!`, true), 550));
+        H.completed(pl.captured).filter((x) => !before.has(x)).forEach((x) => {
+          const st = YAKU_STAMP[x];
+          if (st) SH.stamp(st[0], 'gold', { sub: (i === g.mySeat ? '나' : pl.name) + (st[1] ? ' · ' + st[1] : ''), delay: 650 });
+          setTimeout(() => toast(`🎉 ${pl.name} ${x} 완성!`, !st), 550);
+        });
       });
     }
     const seotdaReveal = !!(g && g.kind === 'seotda' && g.result && pg && !pg.result && g.result.reveal && g.result.reveal.length);
+    if (g && g.kind === 'seotda' && (g.result || (g.mySeat >= 0 && g.seats[g.mySeat].folded))) ui.sqDone[sqKey(g)] = true; // 결과·다이 → 조이기 끝
     // 판이 방금 끝남 → 마지막 패/먹기 애니메이션과 최종 판을 잠깐 보여준 뒤 결과 화면 (RESULT_V2)
     const justEnded = !!(g && g.result && pg && !pg.result && sameRoom && prev.room.round === r.round);
     if (justEnded) {
-      let hold = g.kind === 'seotda' ? (seotdaReveal ? 2000 : 1300) : 1400;
+      let hold = g.kind === 'seotda' ? (seotdaReveal ? 2700 : 1300) : 1400;
       if (g.kind !== 'seotda' && newPlay) hold = 1500 + (lp.flip != null ? 300 : 0) + (newCap && lc.gained.length ? 800 + 35 * lc.gained.length + (lc.steals && lc.steals.length ? 450 : 0) : 0);
       if (!FX.canAnimate) hold = Math.min(hold, 1200);
       ui.resHold = { key: r.code + ':' + r.round, until: Date.now() + hold };
@@ -155,25 +161,28 @@
     // 진행 상황이 바뀌면 진행 중인 애니메이션은 즉시 정리 (서버 상태가 항상 우선)
     if (!sameRoom || r.actSeq !== prev.room.actSeq || r.round !== prev.room.round) cancelAnim();
     if (g && r.actSeq !== ui.lastSeq) {
-      if (ui.lastSeq !== -1 && !g.result) {
+      if (ui.lastSeq !== -1) {
         (g.events || []).forEach((e) => {
+          const st = g.kind !== 'seotda' ? eventStamp(e, g) : null;
+          if (st) SH.stamp(st.text, st.kind, { sub: st.sub, say: st.say, delay: 380 });
+          if (g.result) return; // 판 끝 문구는 결과 화면에서
           const big = /뻑|쪽|따닥|싹쓸이|폭탄|흔들기|고!|스톱|승리|나가리|재경기|땡|광/.test(e);
-          toast(e, big);
+          toast(e, big && !st);
         });
       }
       ui.lastSeq = r.actSeq;
     }
     const mine = isMyTurn();
-    if (mine && !ui.lastTurnMine) { beep(880, 0.15); if (navigator.vibrate) try { navigator.vibrate(60); } catch (e) {} }
+    if (mine && !ui.lastTurnMine) { beep(880, 0.15); if (navigator.vibrate && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) try { navigator.vibrate(60); } catch (e) {} }
     ui.lastTurnMine = mine;
     if (g && g.phase !== 'play') ui.sel = null;
     if (ui.modal && ui.modal.type === 'choose' && !(g && g.phase === 'play' && mine)) ui.modal = null;
     render();
     try {
-      if (newDeal) startDeal(g);
+      if (newDeal) startIntro(g);
       else if (newPlay) playAnim(g, lp, snap, newCap ? lc : null); // 마지막 수도 끝까지 보여 줌
       else if (newCap) captureAnim(g, lc, snap, {}, 0);
-      else if (seotdaReveal) FX.tak();
+      else if (seotdaReveal) showdown(g);
     } catch (e) { cancelAnim(); }
   });
 
@@ -190,6 +199,7 @@
     const inGame = !!(S && S.game && S.room.status !== 'lobby');
     $app.classList.toggle('game', inGame);
     if (!inGame) { $app.style.removeProperty('--u'); document.documentElement.classList.remove('in-game'); }
+    try { FX.music(inGame ? 'game' : 'lobby'); } catch (e) {}
     if (!S) return renderLanding();
     const r = S.room;
     if (r.status === 'lobby' || !S.game) return renderLobby();
@@ -198,6 +208,7 @@
     document.documentElement.classList.add('in-game');
     fit();
     applyHidden();
+    resultIntro();
   }
 
   // ---------- 한 화면 맞춤 (스크롤 없음) ----------
@@ -245,6 +256,7 @@
     if (anim.ghost) { anim.ghost.remove(); anim.ghost = null; }
     anim.dealing = false; anim.moving = false; anim.cardGhost = {};
     FX.clearLayer();
+    if (SH.seonActive()) SH.clearSeon();
   }
   const later = (ms, fn) => { anim.timers.push(setTimeout(fn, ms)); };
   function cardSize(sel) { const e = document.querySelector(sel); return e ? rectOf(e) : null; }
@@ -608,7 +620,7 @@
         <div class="row"><input id="code" maxlength="5" placeholder="방 코드 5자리" style="text-transform:uppercase" value="${esc(urlRoom)}"><button class="btn-blue" style="flex:0 0 90px" data-act="join">참여</button></div>
       </div>
       <div class="panel rank-panel"><h3>🏆 순위 <small class="muted">가진 돈 Top 10</small></h3><div id="rank-list">${rankHTML()}</div></div>
-      <p class="notice">※ <b>${DISCLAIMER}</b>.<br>실제 돈·현금·경품과 교환되지 않으며 결제 기능이 없습니다. 0원이 되면 300,000원으로 다시 시작해요.<br><span style="opacity:.7">카드 그림: Wikimedia Commons “Hwatu” 세트 (Spenĉjo, Louie Mantia Jr. 원작 기반), <a href="/cards/LICENSE.txt" style="color:#ffcf4a">CC BY-SA 4.0</a></span></p>
+      <p class="notice">※ <b>${DISCLAIMER}</b>.<br>실제 돈·현금·경품과 교환되지 않으며 결제 기능이 없습니다. 0원이 되면 300,000원으로 다시 시작해요.<br><span style="opacity:.7">카드 그림: Wikimedia Commons “Hwatu” 세트 (Spenĉjo, Louie Mantia Jr. 원작 기반), <a href="/cards/LICENSE.txt" style="color:#ffcf4a">CC BY-SA 4.0</a><br>배경음악·효과음·연출: 혁게임 자체 제작 (브라우저 Web Audio로 실시간 합성, 외부 음원 없음)</span></p>
     </div>`;
   }
 
@@ -670,7 +682,8 @@
     </div>${modalHTML()}`;
   }
 
-  const muteBtn = (cls) => `<button class="btn-ghost snd ${cls || ''}" data-act="mute" aria-label="소리 켜기/끄기" title="소리 켜기/끄기">${FX.isMuted() ? '🔇' : '🔊'}</button>`;
+  const muteBtn = (cls) => `<button class="btn-ghost snd ${cls || ''}" data-act="mute" aria-label="소리 켜기/끄기" title="소리 켜기/끄기">${FX.isMuted() ? '🔇' : '🔊'}</button>` + bgmBtn(cls ? cls + ' bgm' : '');
+  const bgmBtn = (cls) => `<button class="btn-ghost snd bgmb ${cls || ''} ${FX.isBgmOn() && !FX.isMuted() ? '' : 'off'}" data-act="bgm" aria-label="배경음악 켜기/끄기" title="배경음악 켜기/끄기">🎵</button>`;
   function header() {
     const r = S.room;
     const g = S.game;
@@ -701,8 +714,8 @@
       const s = g.seats[me];
       meBox = `<div class="sd-me ${g.turn === me ? '' : ''}">
         <div class="muted">${esc(s.name)} (나) · 보유 ${wonC(chipsOf(s.id) - (g.result ? 0 : s.contrib))} · 베팅 ${wonC(s.contrib)}${s.folded ? ' · 다이' : ''}</div>
-        <div class="cards">${s.cards.map((c) => sd(c, 'lg')).join('')}</div>
-        <div class="hn">${esc(s.handName || '')}</div></div>`;
+        <div class="cards">${s.cards.map((c, k) => k === 1 && squeezing(g) ? sqCard(g, c) : sd(c, 'lg')).join('')}</div>
+        <div class="hn ${squeezing(g) ? 'hid' : ''}">${esc(s.handName || '')}</div></div>`;
     } else { meBox = ''; bar = specBar(g); }
     if (me >= 0 && g.result) bar = resultBar(g);
     if (me >= 0 && !g.result) {
@@ -799,6 +812,158 @@
       ${mineHTML}${handHTML}<div class="bar">${bar}</div>`;
   }
 
+  // ---------- 연출 (SHOW_V1) ----------
+  // 족보 완성 → 큰 도장 (엔진이 실제로 계산한 족보만: shared/hints completed)
+  const YAKU_STAMP = { '고도리': ['고도리'], '홍단': ['홍단'], '청단': ['청단'], '초단': ['초단'], '3광': ['삼광'], '비광 3광': ['삼광', '비광 포함'], '4광': ['사광'], '5광': ['오광'] };
+  // 엔진 이벤트 문구 → 도장 (lib/gostop.js events 그대로. 없는 이벤트는 만들지 않음)
+  function eventStamp(e, g) {
+    const m = /^(.+?): (.+)$/.exec(e);
+    if (!m) return null;
+    const who = g.players[g.mySeat] && g.players[g.mySeat].name === m[1] ? '나' : m[1], t = m[2];
+    let r = null;
+    if (/^(\d+)고!/.test(t)) { const n = /^(\d+)고!/.exec(t)[1]; r = { text: n + '고!', kind: 'go', say: n + '고' }; }
+    else if (/^스톱!/.test(t)) r = { text: '스톱!', kind: 'stop', say: '스톱' };
+    else if (/^3뻑!/.test(t)) r = { text: '삼뻑!', kind: 'gold', say: '삼뻑' };
+    else if (/^뻑 먹기!/.test(t)) r = { text: '뻑 먹기!', kind: 'good', say: '뻑 먹기' };
+    else if (/^뻑!/.test(t)) r = { text: '뻑!', kind: 'bad', say: '뻑' };
+    else if (/^따닥!/.test(t)) r = { text: '따닥!', kind: 'good', say: '따닥' };
+    else if (/^쪽!/.test(t)) r = { text: '쪽!', kind: 'good', say: '쪽' };
+    else if (/^싹쓸이!/.test(t)) r = { text: '싹쓸이!', kind: 'good', say: '싹쓸이' };
+    else if (/^폭탄!/.test(t)) r = { text: '폭탄!', kind: 'gold', say: '폭탄' };
+    else if (/^흔들기!/.test(t)) r = { text: '흔들기!', kind: 'good', say: '흔들기' };
+    if (r) r.sub = who;
+    return r;
+  }
+  // 새 판 시작: 맞고/고스톱은 선 정하기(서버가 정한 결과 그대로) → '판 시작' 도장 → 셔플·패 돌리기
+  function startIntro(g) {
+    if (g.kind === 'seotda' || !g.seon || !FX.canAnimate || SH.reduced) { if (g.kind !== 'seotda' && g.seon) SH.stamp('판 시작', 'start', { say: '시작', dur: 600 }); return startDeal(g); }
+    cancelAnim();
+    const round = S.room.round, seq = S.room.actSeq, sn = g.seon;
+    ['.hand .card', '.floor .card', '.deck > .card.back', '.mine .bdg', '.opp .bdg'].forEach(hideSel);
+    anim.dealing = true; // 탭하면 건너뛰기
+    const nm = (i) => (i === g.mySeat ? '나' : g.players[i].name);
+    const o = sn.reason === 'draw'
+      ? { title: '선 정하기', rows: sn.draws.map((d) => ({ name: nm(d.seat), face: hw(d.card), win: d.seat === sn.seat })), note: `가장 높은 달 <b>${HWATU[sn.draws[sn.seat].card].m}월</b> — <b>${esc(nm(sn.seat))}</b>${sn.seat === g.mySeat ? '가' : '님이'} 선!` }
+      : { title: '이번 판 선', note: `지난 판 승리 <b>${esc(nm(sn.seat))}</b>${sn.seat === g.mySeat ? '가' : '님이'} 선이에요` };
+    SH.seon(o, () => {
+      if (!S || !S.game || S.room.round !== round || S.room.actSeq !== seq) return;
+      startDeal(S.game);
+    });
+  }
+  // 섯다 결과: 상대 패를 차례로 뒤집고, 이긴 족보를 큰 도장으로
+  function showdown(g) {
+    FX.tak();
+    const res = g.result;
+    const els = [...document.querySelectorAll('.sd-seat .cards .card')];
+    els.forEach((e, k) => { e.style.animationDelay = (k * 120) + 'ms'; e.classList.add('rv'); });
+    const hand = (res.winnerHands || [])[0];
+    if (hand) {
+      const big = /땡|광|암행어사|땡잡이|알리|독사|구삥|장삥|장사|세륙/.test(hand);
+      SH.stamp(hand, big ? 'gold' : 'good', { sub: res.winners.includes(S.me) ? '나' : (res.winnerNames || [])[0], delay: 350 + els.length * 120 });
+    }
+  }
+  // 결과 카드가 처음 뜰 때 한 번: 승리(꽃가루·동전)/패배(잔잔)/나가리 배너 + 돈 숫자 올라가기 + 박 도장
+  function resultIntro() {
+    const ov = document.querySelector('.res-ov');
+    if (!ov || !ui.resHold || ui.resHold.key !== resKey() || ui.resIntroKey === resKey()) return;
+    ui.resIntroKey = resKey();
+    const res = S.game.result, myD = res.chipDelta[S.me];
+    let kind = 'win', text = '승리!', sub = '';
+    if (res.nagari) { kind = 'draw'; text = '나가리'; sub = '다음 판 점수 2배'; }
+    else if (res.winners.includes(S.me)) { text = '승리!'; }
+    else if (myD != null) { kind = 'lose'; text = '패배'; sub = `${res.winnerNames.join(', ')} 승리`; }
+    else { text = '승리!'; sub = res.winnerNames.join(', '); }
+    if (!sub && res.game !== 'seotda' && res.points) sub = `${res.points}점`;
+    if (!sub && res.game === 'seotda' && res.winnerHands && res.winnerHands.length) sub = res.winnerHands[0];
+    ov.classList.add('intro');
+    SH.endBanner(kind, text, sub);
+    const card = ov.querySelector('.res-card'); if (card && kind === 'lose') card.classList.add('intro-lose');
+    // 돈 숫자 올라가기: 화면을 다시 그려도 이어지도록 시작 시각만 기억하고 매 프레임 DOM에서 찾아 갱신
+    if (!SH.reduced) {
+      ui.count = { key: resKey(), t0: performance.now() + 800, dur: 1000 };
+      let lastCoin = 0;
+      const f = (now) => {
+        if (!ui.count || ui.count.key !== resKey()) return;
+        document.querySelectorAll('.res-ov .rm-d[data-d]').forEach((el) => { el.textContent = fmtDelta(Number(el.dataset.d)); });
+        const my = document.querySelector('.res-ov .res-my[data-d]'); if (my) my.textContent = '내 돈 ' + fmtW(countVal(Number(my.dataset.d)));
+        const k = (now - ui.count.t0) / ui.count.dur;
+        if (k > 0 && k < 1 && now - lastCoin > 120) { lastCoin = now; FX.coin(0.35); }
+        if (k < 1) requestAnimationFrame(f); else ui.count = null;
+      };
+      requestAnimationFrame(f);
+    }
+    // 박 (광박·피박·고박) — 엔진이 붙인 것만
+    const baks = [];
+    (res.losers || []).forEach((l) => l.tags.forEach((tg) => { const b = /^(광박|피박|고박)/.exec(tg); if (b) baks.push([b[1], l.name]); }));
+    baks.slice(0, 3).forEach(([b, n], k) => SH.stamp(b + '!', 'bad', { sub: n === (meP() || {}).name ? '나' : n, delay: k ? 0 : 1600, dur: 800 }));
+  }
+  function countVal(d) {
+    if (!ui.count || ui.count.key !== resKey()) return d;
+    const k = Math.max(0, Math.min(1, (performance.now() - ui.count.t0) / ui.count.dur));
+    return Math.round(d * (1 - Math.pow(1 - k, 3)));
+  }
+  const fmtDelta = (d) => { const v = countVal(d); return (v > 0 ? '+' : '') + (Math.abs(d) >= 1e8 ? wonC(v) : won(v)); };
+  // 섯다 패 조이기: 내 두 번째 패를 끌어올리거나(드래그) 탭하면 천천히 보임
+  const sqKey = (g) => S.room.code + ':' + S.room.round + ':' + (g.redeals || 0);
+  const squeezing = (g) => !!(g.mySeat >= 0 && !g.result && !g.seats[g.mySeat].folded && g.seats[g.mySeat].cards[1] != null && !ui.sqDone[sqKey(g)]);
+  function sqCard(g, c) {
+    const p = ui.sqP[sqKey(g)] || 0;
+    const d = SEOTDA[c];
+    return cardHTML(d, 'lg sq', 'data-sq="1"', (d.m - 1) * 4 + (c % 2), `<div class="sq-cover" style="transform:translateY(${(-p * 100).toFixed(1)}%)"></div>${p < 0.05 ? '<span class="sq-hint">▲ 밀어서 조이기</span>' : ''}`);
+  }
+  function sqSet(p) {
+    const g = S && S.game; if (!g || g.kind !== 'seotda') return;
+    ui.sqP[sqKey(g)] = p;
+    const cv = document.querySelector('.sq .sq-cover'); if (cv) cv.style.transform = `translateY(${(-p * 100).toFixed(1)}%)`;
+    const h = document.querySelector('.sq .sq-hint'); if (h && p > 0.05) h.remove();
+  }
+  function sqFinish() {
+    const g = S && S.game; if (!g || g.kind !== 'seotda') return;
+    const k = sqKey(g);
+    if (ui.sqDone[k]) return;
+    ui.sqDone[k] = true;
+    FX.tak(0.8);
+    const s = g.seats[g.mySeat];
+    if (s && s.handName && /땡|광/.test(s.handName)) SH.stamp(s.handName, 'gold', { sub: '내 패', delay: 100 });
+    render();
+  }
+  function sqAuto(from) { // 탭: 0.9초 동안 천천히 조여서 공개
+    const t0 = performance.now(), k = sqKey(S.game);
+    const f = (now) => {
+      if (!S || !S.game || S.game.kind !== 'seotda' || sqKey(S.game) !== k || ui.sqDone[k]) return;
+      const e = Math.min(1, (now - t0) / 900), p = from + (1 - from) * (e * e * (3 - 2 * e));
+      sqSet(p); if (Math.random() < 0.15) FX.rub();
+      if (e < 1) requestAnimationFrame(f); else sqFinish();
+    };
+    requestAnimationFrame(f);
+  }
+  (function sqInput() {
+    let drag = null;
+    document.addEventListener('pointerdown', (ev) => {
+      const el = ev.target.closest && ev.target.closest('.sq');
+      if (!el || !S || !S.game) return;
+      const h = el.getBoundingClientRect().height;
+      drag = { y: ev.clientY, h, p0: ui.sqP[sqKey(S.game)] || 0, moved: 0, lastRub: 0 };
+      try { el.setPointerCapture(ev.pointerId); } catch (e) {}
+    });
+    document.addEventListener('pointermove', (ev) => {
+      if (!drag) return;
+      const dy = drag.y - ev.clientY;
+      drag.moved = Math.max(drag.moved, Math.abs(dy));
+      const p = Math.max(0, Math.min(1, drag.p0 + dy / (drag.h * 1.1)));
+      sqSet(p);
+      if (Date.now() - drag.lastRub > 90 && drag.moved > 4) { drag.lastRub = Date.now(); FX.rub(); }
+      if (ev.cancelable) ev.preventDefault();
+    }, { passive: false });
+    const up = () => {
+      if (!drag || !S || !S.game) { drag = null; return; }
+      const p = ui.sqP[sqKey(S.game)] || 0, d = drag; drag = null;
+      if (p > 0.6) sqAuto(p); else if (d.moved < 6) sqAuto(p);
+    };
+    document.addEventListener('pointerup', up);
+    document.addEventListener('pointercancel', () => { drag = null; });
+  })();
+
   // ---------- 결과 (RESULT_V2) ----------
   const resKey = () => S.room.code + ':' + S.room.round;
   const resHolding = () => !!(ui.resHold && S && S.game && S.game.result && ui.resHold.key === resKey() && Date.now() < ui.resHold.until);
@@ -851,14 +1016,14 @@
       const gp = (g.players || g.seats || []).find((x) => x.id === id);
       const bal = p ? p.chips : 0;
       const W = (n) => (Math.abs(n) >= 1e8 ? wonC(n) : won(n));
-      return `<div class="rm-row ${id === S.me ? 'me' : ''}"><span class="rm-nm">${esc(p ? p.name : gp ? gp.name : '?')}${id === S.me ? ' (나)' : ''}</span><span class="rm-d ${d > 0 ? 'pos' : d < 0 ? 'neg' : ''}">${d > 0 ? '+' : ''}${W(d)}</span><span class="rm-b">→ ${W(bal)}</span></div>`;
+      return `<div class="rm-row ${id === S.me ? 'me' : ''}"><span class="rm-nm">${esc(p ? p.name : gp ? gp.name : '?')}${id === S.me ? ' (나)' : ''}</span><span class="rm-d ${d > 0 ? 'pos' : d < 0 ? 'neg' : ''}" data-d="${d}">${fmtDelta(d)}</span><span class="rm-b">→ ${W(bal)}</span></div>`;
     }).join('');
     const btns = isHost()
       ? '<button class="btn-primary" data-act="next">다음 판</button><button class="btn-ghost" data-act="closeRes">판 보기</button><button class="btn-ghost" data-act="toLobby">대기실로</button>'
       : '<button class="btn-primary" data-act="closeRes">확인</button>';
     return `<div class="res-ov"><div class="res-card ${t.cls}">
       <div class="res-head"><div class="res-emoji">${t.emoji}</div><h2>${esc(t.text)}</h2>${how ? `<div class="res-how">${how}</div>` : ''}
-        ${myDelta != null ? `<div class="res-my ${myDelta > 0 ? 'pos' : myDelta < 0 ? 'neg' : ''}">내 돈 ${fmtW(myDelta)}</div>` : ''}</div>
+        ${myDelta != null ? `<div class="res-my ${myDelta > 0 ? 'pos' : myDelta < 0 ? 'neg' : ''}" data-d="${myDelta}">내 돈 ${fmtW(countVal(myDelta))}</div>` : ''}</div>
       <div class="res-body">${body}<div class="res-sec res-money"><div class="res-lbl">돈 정산</div>${money}</div></div>
       <div class="res-btns">${btns}</div>
       ${!isHost() ? '<div class="res-wait">방장이 다음 판을 시작하면 바로 이어져요</div>' : ''}
@@ -1087,6 +1252,7 @@
       case 'board': ui.modal = { type: 'board' }; return render();
       case 'close': ui.modal = null; return render();
       case 'mute': FX.setMuted(!FX.isMuted()); if (!FX.isMuted()) FX.tak(0.7); return render();
+      case 'bgm': if (FX.isMuted()) { FX.setMuted(false); FX.setBgm(true); } else FX.setBgm(!FX.isBgmOn()); toast(FX.isBgmOn() ? '🎵 배경음악 켬' : '🎵 배경음악 끔'); return render();
       case 'playSel': if (ui.sel != null) tryPlay(ui.sel); return;
       case 'flipOnly': ui.sel = null; return emit('action', { type: 'flipOnly' });
       case 'leave':

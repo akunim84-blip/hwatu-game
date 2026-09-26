@@ -79,7 +79,7 @@ function rig(e, spec) {
     const code = await p.evaluate(() => localStorage.getItem('hw_room'));
     const room = rooms.get(code);
     const e = room.engine;
-    await sleep(4200); // 패 돌리기 끝
+    await sleep(7200); // 선 정하기 + 패 돌리기 끝
     // (a) 짝 강조용 판: 손패 3월·8월은 바닥과 짝, 11월·보너스 없음
     rig(e, {
       handSize: [6, 6], floorSize: 6,

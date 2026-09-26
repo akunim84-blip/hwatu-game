@@ -17,6 +17,8 @@ const AUTO_MS = Number(process.env.AUTO_MS || 15000); // 연결 끊긴 플레이
 const AI_DELAY_SCALE = Number(process.env.AI_DELAY_SCALE || 1); // 시뮬레이션용 AI 지연 배율
 const AI_DEAL_WAIT = 2500; // 새 판 패 돌리기 애니메이션 동안 AI 대기 (섯다)
 const AI_DEAL_WAIT_GOSTOP = 3700; // 맞고/고스톱: 셔플(1초) + 한 장씩 돌리기(~2.4초)
+const SEON_WAIT_DRAW = 2600; // 시작 연출: 선 고르기(카드 뒤집기) + '판 시작' 도장
+const SEON_WAIT_WINNER = 1300; // 시작 연출: '선: 지난 판 승자' + '판 시작' 도장
 const GAMES = {
   seotda: { name: '섯다', min: 2, max: 5 },
   matgo: { name: '맞고', min: 2, max: 2 },
@@ -167,7 +169,7 @@ function scheduleAuto(room) {
     // AI: 사람처럼 0.7~1.5초 생각 (새 판이면 패 돌리기 애니메이션이 끝날 때까지 추가 대기)
     const e = room.engine;
     let ms = 700 + Math.random() * 800;
-    if (room.actSeq === room.roundStartSeq) ms += e.kind === 'seotda' ? AI_DEAL_WAIT : AI_DEAL_WAIT_GOSTOP;
+    if (room.actSeq === room.roundStartSeq) ms += e.kind === 'seotda' ? AI_DEAL_WAIT : AI_DEAL_WAIT_GOSTOP + (e.seon && e.seon.reason === 'draw' ? SEON_WAIT_DRAW : SEON_WAIT_WINNER);
     else if (e.kind !== 'seotda') {
       // 맞고/고스톱: 직전 패 내기·먹기(+피 뺏기) 애니메이션이 끝까지 보이도록 기다림
       ms = 1150 + Math.random() * 600;
@@ -285,9 +287,11 @@ function startRound(room) {
     room.dealer = (room.dealer + 1) % ps.length;
     room.engine = new SeotdaGame(ps, { ante: room.perPoint, dealer: room.dealer });
   } else {
+    // 선: 지난 판 승자. 첫 판(또는 승자가 자리에 없음)이면 선 고르기 — 각자 한 장씩 뒤집어 높은 달
     let first = ps.findIndex((p) => p.id === room.lastWinner);
-    if (first < 0) first = 0;
-    room.engine = new GoStopGame(ps, { perPoint: room.perPoint, mult: room.mult, first, bonus: room.bonus });
+    let seon = null;
+    if (first < 0) { seon = GoStopGame.drawSeon(ps.length); first = seon.seat; }
+    room.engine = new GoStopGame(ps, { perPoint: room.perPoint, mult: room.mult, first, bonus: room.bonus, seon });
   }
   room.status = 'playing';
   room.actSeq++;

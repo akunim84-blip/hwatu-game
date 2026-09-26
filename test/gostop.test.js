@@ -286,3 +286,31 @@ test('결과 화면용 정보: 족보별 점수·고 횟수·흔들기·박 태�
   assert.strictEqual(r.chipDelta.a, r.points * 2 * 2 * 2 * 1000);
   assert.strictEqual(r.chipDelta.a + r.chipDelta.b, 0);
 });
+
+test('선 고르기: 서로 다른 카드, 최고 달이 한 명뿐, 그 자리가 선 (시작 연출용 view.seon)', () => {
+  for (let k = 0; k < 200; k++) {
+    const n = k % 2 ? 3 : 2;
+    const s = GoStopGame.drawSeon(n);
+    assert.strictEqual(s.reason, 'draw');
+    assert.strictEqual(s.draws.length, n);
+    assert.strictEqual(new Set(s.draws.map((d) => d.card)).size, n);
+    assert.ok(s.draws.every((d) => !HWATU[d.card].bonus));
+    const ms = s.draws.map((d) => HWATU[d.card].m);
+    const top = Math.max(...ms);
+    assert.strictEqual(ms.filter((m) => m === top).length, 1);
+    assert.strictEqual(HWATU[s.draws[s.seat].card].m, top);
+  }
+  const seon = GoStopGame.drawSeon(2);
+  const g = new GoStopGame(P2, { first: seon.seat, seon });
+  assert.strictEqual(g.turn, seon.seat);
+  const v = g.view('a');
+  assert.deepStrictEqual(v.seon.draws, seon.draws);
+  assert.strictEqual(v.seon.seat, g.turn);
+  // 둘째 판부터: 지난 판 승자
+  const g2 = new GoStopGame(P2, { first: 1 });
+  assert.deepStrictEqual(g2.view('b').seon, { reason: 'winner', seat: 1 });
+  // 첫 수 이후엔 전송 안 함
+  const o = g2.options(1); const c = o.cards[0];
+  g2.act('b', c ? { type: 'play', card: c.id, floorCard: c.matches ? c.matches[0] : undefined } : { type: 'flipOnly' });
+  assert.strictEqual(g2.view('a').seon, null);
+});

@@ -110,3 +110,24 @@ test('대기실(판 사이)에서는 AI 자리를 바로 넘겨받음 · 비공�
   assert.ok(!roomList().some((x) => x.code === rp.code));
   [H, D, P].forEach((c) => c.s.close());
 });
+
+test('맞고 첫 판은 선 고르기로 선을 정하고(서버 결정), 다음 판은 지난 판 승자가 선', async () => {
+  const A = client('sa', '선테스트');
+  const r = await A.emit('createRoom', { game: 'matgo', perPoint: 10, ai: true, level: 'easy' });
+  assert.ok(r.ok);
+  const st = await A.until((s) => s.game && s.game.seon);
+  const seon = st.game.seon;
+  assert.strictEqual(seon.reason, 'draw');
+  assert.strictEqual(seon.draws.length, 2);
+  assert.strictEqual(st.game.turn, seon.seat, '선 고르기 결과가 실제 첫 차례');
+  const room = rooms.get(r.code);
+  room.lastWinner = room.players[1].id; // 지난 판 승자 = AI 자리
+  room.status = 'result'; room.engine.over = true;
+  if (room.timer) { clearTimeout(room.timer); room.timer = null; }
+  const nx = await A.emit('start');
+  assert.ok(nx.ok, JSON.stringify(nx));
+  const st2 = await A.until((s) => s.room.round === 2 && s.game && s.game.seon);
+  assert.deepStrictEqual(st2.game.seon, { reason: 'winner', seat: 1 });
+  assert.strictEqual(st2.game.turn, 1);
+  A.s.close();
+});
