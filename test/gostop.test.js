@@ -218,3 +218,54 @@ test('view.lastPlay: 낸 패와 뒤집은 패 (애니메이션/효과음용)', (
   assert.equal(lp.flip, g.lastFlip);
   assert.notEqual(lp.flip, null);
 });
+
+// ---- 먹기 이벤트 (lastCapture): 클라이언트 먹기/피 뺏기 애니메이션용 ----
+function capGame({ hand0, floor, deck, cap1 }) {
+  const g = new GoStopGame(P2, { bonus: false, perPoint: 10, first: 0 });
+  g.players.forEach((p) => { p.captured = []; });
+  g.players[1].hand = [id(12, 1), id(12, 2)];
+  setup(g, { hand0, floor, deck, cap1 });
+  return g;
+}
+test('lastCapture: 한 쌍 먹기 → 먹은 카드, 뺏기 없음', () => {
+  const g = capGame({ hand0: [id(1, 2), id(6, 2)], floor: [id(1, 0), id(11, 2)], deck: [id(5, 2), id(7, 2)] });
+  g.act('a', { type: 'play', card: id(1, 2), floorCard: id(1, 0) });
+  const c = g.view('b').lastCapture;
+  assert.equal(c.seat, 0);
+  assert.deepEqual(c.gained.slice().sort((x, y) => x - y), [id(1, 0), id(1, 2)]);
+  assert.deepEqual(c.steals, []);
+  assert.equal(c.seq, 1);
+});
+test('lastCapture: 쪽 → 두 장 먹고 상대 피 1장 뺏음 (출처 기록)', () => {
+  const g = capGame({ hand0: [id(3, 2), id(6, 2)], floor: [id(11, 2), id(10, 2)], deck: [id(3, 3), id(7, 2)], cap1: [id(9, 2), id(9, 0)] });
+  g.act('a', { type: 'play', card: id(3, 2) });
+  const c = g.lastCapture;
+  assert.deepEqual(c.gained.slice().sort((x, y) => x - y), [id(3, 2), id(3, 3)]);
+  assert.deepEqual(c.steals, [{ from: 1, to: 0, card: id(9, 2) }]);
+  assert.ok(g.players[0].captured.includes(id(9, 2)));
+});
+test('lastCapture: 뻑이면 먹은 것 없음, 뻑 먹기는 4장 + 뺏기', () => {
+  const g = capGame({ hand0: [id(1, 2), id(6, 2)], floor: [id(1, 0), id(11, 2)], deck: [id(1, 3), id(7, 2)] });
+  g.act('a', { type: 'play', card: id(1, 2), floorCard: id(1, 0) });
+  assert.deepEqual(g.lastCapture.gained, []);
+  assert.equal(g.floor.filter((x) => HWATU[x].m === 1).length, 3);
+  // 상대가 1월 마지막 장으로 뻑 먹기
+  g.players[1].hand = [id(1, 1), id(12, 2)];
+  g.players[0].captured = [id(9, 2)];
+  g.deck = [id(4, 2), id(8, 3)].reverse();
+  g.act('b', { type: 'play', card: id(1, 1) });
+  const c = g.lastCapture;
+  assert.equal(c.seat, 1);
+  assert.equal(c.gained.filter((x) => HWATU[x].m === 1).length, 4);
+  assert.deepEqual(c.steals.map((s) => [s.from, s.to]), [[0, 1]]);
+});
+test('lastCapture: 뒤집은 패 선택(chooseFlip)은 별도 이벤트(seq 증가)', () => {
+  const g = capGame({ hand0: [id(6, 2), id(7, 3)], floor: [id(10, 0), id(10, 1), id(11, 2)], deck: [id(10, 2), id(5, 2)] });
+  g.act('a', { type: 'play', card: id(6, 2) });
+  assert.equal(g.phase, 'chooseFlip');
+  const s1 = g.lastCapture.seq;
+  assert.deepEqual(g.lastCapture.gained, []);
+  g.act('a', { type: 'chooseFlip', floorCard: id(10, 0) });
+  assert.equal(g.lastCapture.seq, s1 + 1);
+  assert.deepEqual(g.lastCapture.gained.slice().sort((x, y) => x - y), [id(10, 0), id(10, 2)]);
+});

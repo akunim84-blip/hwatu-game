@@ -1,6 +1,7 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:#0b2e22;color:#f4f1e8;font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif;overscroll-behavior:none}
-body{background:radial-gradient(ellipse at 50% 30%,#1c6b4c 0%,#0f3d2e 60%,#08241a 100%) fixed}
+html{background:radial-gradient(ellipse at 50% 30%,#1c6b4c 0%,#0f3d2e 60%,#08241a 100%) fixed #0b2e22}
+body{background:transparent} /* 배경은 html(캔버스)에 — 장판 워터마크(z-index:-1)가 가려지지 않도록 */
 #app{--u:1;max-width:520px;margin:0 auto;min-height:100vh;min-height:100dvh;display:flex;flex-direction:column}
 /* 게임 화면: 한 화면에 맞춤 (스크롤 없음). 카드 크기는 --u 배율(JS fit()이 조정) */
 #app.game{height:100vh;height:100dvh;min-height:0;padding-bottom:env(safe-area-inset-bottom)}
@@ -184,3 +185,31 @@ table.sb td,table.sb th{padding:7px 4px;border-bottom:1px solid rgba(255,255,255
 .warn b{color:#fff}
 .shuffle-pile{position:absolute;pointer-events:none}
 .shuffle-pile .sp{position:absolute;left:0;top:0;margin:0;box-shadow:0 1px 2px rgba(0,0,0,.5)}
+/* 먹기 애니메이션 (CAPTURE_V1) */
+.flyer.ghostc{transition:box-shadow .15s}
+.flyer.cap-glow{box-shadow:0 0 0 2px #ffe08a,0 0 14px 3px rgba(255,224,138,.85)!important}
+.flyer.steal-glow{box-shadow:0 0 0 2px #ff8a80,0 0 12px 3px rgba(255,82,82,.8)!important}
+/* 브랜드: 혁게임 (로고 폰트 Black Han Sans, SIL OFL 1.1 — public/fonts/OFL-BlackHanSans.txt, 사용 글자만 서브셋) */
+@font-face{font-family:'HyukLogo';src:url(/fonts/hyuk-logo.woff2) format('woff2');font-display:swap}
+.brand{font-family:'HyukLogo','Black Han Sans','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif;font-weight:900;letter-spacing:2px}
+.title.brand{font-size:42px;letter-spacing:4px;margin-top:22px;text-shadow:0 2px 10px rgba(0,0,0,.35)}
+.title .logo-sub{display:block;font-family:inherit;font-size:13px;letter-spacing:6px;opacity:.55;margin-top:2px}
+/* 게임 장판 워터마크: 가운데 크게, 반투명, 탭 방해 없음, 스크롤에 영향 없음(fixed) */
+#app.game::before{content:'혁게임';position:fixed;left:50%;top:50%;transform:translate(-50%,-52%);z-index:-1;pointer-events:none;white-space:nowrap;
+  font-family:'HyukLogo','Black Han Sans','Apple SD Gothic Neo','Malgun Gothic','Noto Sans KR',sans-serif;font-weight:900;
+  font-size:min(24vw,17vh,190px);letter-spacing:.08em;padding-left:.08em;color:#fff;opacity:.22;line-height:1;text-shadow:none;-webkit-text-fill-color:#fff}
+#app.game::after{content:'';position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:-1;pointer-events:none;
+  width:min(84vw,60vh,640px);height:min(84vw,60vh,640px);border-radius:50%;border:2px solid rgba(255,255,255,.18);
+  box-shadow:inset 0 0 0 6px rgba(0,0,0,0),inset 0 0 0 8px rgba(255,255,255,.07)}
+/* 진행 중인 방 목록 */
+.rlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto}
+.room-item{width:100%;display:flex;align-items:center;gap:10px;text-align:left;background:rgba(255,255,255,.08);color:#f4f1e8;padding:10px;border:1px solid rgba(255,255,255,.1)}
+.room-item:active{background:rgba(255,207,74,.18)}
+.room-item .rg{flex:none;min-width:48px;text-align:center;font-weight:900;color:#3a2400;background:#ffcf4a;border-radius:8px;padding:6px 4px;font-size:14px}
+.room-item .rinfo{flex:1;min-width:0;font-weight:500;line-height:1.35}
+.room-item .rj{flex:none;font-size:12px;font-weight:800;padding:6px 8px;border-radius:8px;background:#2a7de0;color:#fff;max-width:88px;text-align:center}
+.room-item .rj.watch{background:rgba(255,255,255,.18)}
+.room-item .rj.next{background:#6c3fb5}
+.st{font-weight:800}.st-play{color:#ff8a80}.st-lobby{color:#8fe3a8}
+.spec-note{text-align:center;color:#ffcf4a}
+.turnbar.spec{color:#bfe8ff}

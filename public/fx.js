@@ -124,6 +124,26 @@
       nn.connect(bp); bp.connect(gg); gg.connect(master);
     });
   }
+  // 먹은 패를 쓸어 담는 '스윽' (steal=true: 더 짧고 높게)
+  function swish(vol, steal) {
+    const c = ready(); if (!c) return;
+    vol = vol == null ? 1 : vol;
+    const t = c.currentTime + 0.005, d = steal ? 0.22 : 0.34;
+    const n = noise(c, t, steal ? 1.2 : 0.8);
+    const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.9;
+    bp.frequency.setValueAtTime(steal ? 1400 : 700, t);
+    bp.frequency.exponentialRampToValueAtTime(steal ? 5200 : 3400, t + d * 0.8);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.28 * vol, t + d * 0.35);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    n.connect(bp); bp.connect(g); g.connect(master);
+    // 끝에 살짝 '톡' (더미에 쌓임)
+    const n2 = noise(c, t + d * 0.9, 1);
+    const bp2 = c.createBiquadFilter(); bp2.type = 'bandpass'; bp2.frequency.value = 1800; bp2.Q.value = 1.3;
+    const g2 = env(c, t + d * 0.9, 0.18 * vol, 0.035);
+    n2.connect(bp2); bp2.connect(g2); g2.connect(master);
+  }
   function beep(freq, dur) {
     const c = ready(); if (!c) return;
     try {
@@ -193,5 +213,5 @@
   }
   function clearLayer() { if (layer) layer.innerHTML = ''; }
 
-  window.HwatuFX = { getLayer, tak, tick, shuffle, beep, unlock, isMuted: () => muted, setMuted, fly, clearLayer, canAnimate };
+  window.HwatuFX = { getLayer, tak, tick, shuffle, swish, beep, unlock, isMuted: () => muted, setMuted, fly, clearLayer, canAnimate };
 })();

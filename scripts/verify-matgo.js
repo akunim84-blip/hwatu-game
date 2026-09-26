@@ -16,6 +16,7 @@ function rig(e, spec) {
   const used = new Set();
   const take = (arr) => arr.map((x) => { used.add(x); return x; });
   const fixed = { hands: spec.hands.map(take), caps: spec.caps.map(take), floor: take(spec.floor) };
+  if (spec.flip != null) used.add(spec.flip);
   const rest = HWATU.filter((c) => !c.bonus && !used.has(c.id)).map((c) => c.id).sort(() => Math.random() - 0.5);
   e.players.forEach((p, i) => {
     p.hand = fixed.hands[i].slice(); while (p.hand.length < spec.handSize[i]) p.hand.push(rest.pop());
@@ -23,6 +24,7 @@ function rig(e, spec) {
   });
   e.floor = fixed.floor.slice(); while (e.floor.length < spec.floorSize) e.floor.push(rest.pop());
   e.deck = rest;
+  if (spec.flip != null) e.deck.push(spec.flip); // pop() = 다음에 뒤집을 패
   e.turn = 0; e.phase = 'play'; e.pending = null;
 }
 
@@ -44,6 +46,14 @@ function rig(e, spec) {
   const tap = async (p, sel) => { await p.waitForSelector(sel, { timeout: 10000 }); await p.$eval(sel, (el) => el.click()); };
   const measure = (p) => p.evaluate(() => { const se = document.scrollingElement, app = document.getElementById('app'); return { sh: Math.max(se.scrollHeight, app.scrollHeight), ih: innerHeight, sw: se.scrollWidth, iw: innerWidth }; });
 
+  {
+    const p = await newPage('landing');
+    await p.goto(BASE, { waitUntil: 'networkidle0' });
+    await p.evaluate(() => document.fonts.ready);
+    await shot(p, 'brand-landing');
+    report.brand = await p.evaluate(() => ({ title: document.title, og: document.querySelector('meta[property="og:title"]').content, logoFont: document.fonts.check('42px HyukLogo', '혁게임') }));
+    await p.close();
+  }
   for (const game of ['matgo', 'gostop']) {
     const p = await newPage(game);
     await p.goto(BASE, { waitUntil: 'networkidle0' });
@@ -74,6 +84,7 @@ function rig(e, spec) {
         caps: [[id(1, 1), id(2, 1), id(1, 0), id(1, 2), id(2, 2), id(5, 2), id(5, 3), id(6, 2)], [id(6, 1), id(9, 1), id(3, 0), id(8, 0), id(4, 2), id(4, 3), id(12, 3), id(7, 0), id(2, 0)]],
         hands: [[id(3, 1), id(10, 0), id(4, 0)], []],
         floor: [id(10, 1), id(3, 2), id(8, 1)],
+        flip: id(10, 2), // 뒤집은 패로 10월 띠(청단)도 먹음
       });
     } else {
       rig(e, {
@@ -81,6 +92,7 @@ function rig(e, spec) {
         caps: [[id(1, 1), id(2, 1), id(1, 2), id(5, 2)], [id(6, 1), id(9, 1), id(7, 2)], [id(2, 0), id(4, 0), id(11, 0), id(3, 0), id(12, 3)]],
         hands: [[id(3, 1), id(10, 0), id(8, 1)], [], []],
         floor: [id(10, 1), id(3, 2), id(8, 2)],
+        flip: id(10, 2),
       });
     }
     // 같은 pid로 소켓 하나 더 붙여서 상태 방송 유도
@@ -110,9 +122,35 @@ function rig(e, spec) {
     await sleep(450);
     // 3월 띠를 내서 홍단 완성 → 토스트
     await p.evaluate(() => { const c = [...document.querySelectorAll('.hand .card')].find((x) => x.querySelector('.ht.near')); if (c) { c.click(); setTimeout(() => { const s = document.querySelector('.hand .card.sel'); if (s) s.click(); }, 60); } });
-    await sleep(1100);
+    if (process.env.DBG_AI) { const tl = await p.evaluate(() => new Promise((res) => { const out = []; const t0 = performance.now(); const iv = setInterval(() => { out.push(Math.round(performance.now() - t0) + ':' + document.querySelectorAll('.flyer').length + '/' + document.querySelectorAll('.flyer.ghostc').length + '/' + document.querySelectorAll('[data-cap].fx-hide').length); if (out.length > 26) { clearInterval(iv); res(out.join(' ')); } }, 100); })); console.log('TL', tl); }
+    await sleep(1230);
+    await shot(p, `capture-anim-${game}`);
+    report[game].captureMid = await p.evaluate(() => ({ ghosts: document.querySelectorAll('.flyer.ghostc').length, glow: document.querySelectorAll('.flyer.cap-glow').length, hiddenCaps: document.querySelectorAll('[data-cap].fx-hide').length }));
+    await sleep(500);
     report[game].toasts = await p.evaluate(() => [...document.querySelectorAll('.toast')].map((t) => t.textContent));
     await shot(p, `settoast-${game}`);
+    report[game].captureDone = await p.evaluate(() => ({ ghosts: document.querySelectorAll('.flyer.ghostc').length, hiddenCaps: document.querySelectorAll('[data-cap].fx-hide').length }));
+    if (game === 'matgo') {
+      await sleep(1500);
+      const mm = await p.$('[data-gs]'); if (mm) { await p.$eval('[data-gs="go"]', (el) => el.click()); await sleep(300); }
+      // 쪽 → 피 뺏기
+      rig(e, {
+        handSize: [5, 5], floorSize: 5,
+        caps: [[id(1, 1), id(2, 1)], [id(9, 2), id(9, 3), id(11, 1), id(6, 1)]],
+        hands: [[id(5, 0), id(6, 2), id(7, 2)], []],
+        floor: [id(1, 2), id(2, 2), id(4, 3)],
+        flip: id(5, 2),
+      });
+      await new Promise((r) => s.emit('joinRoom', { code, pid: myPid, name: '민수' }, r));
+      await sleep(600);
+      await shot(p, 'brand-mat-matgo');
+      await p.evaluate(() => { const c = document.querySelector('.hand [data-hand="16"]'); c.click(); setTimeout(() => { const x = document.querySelector('.hand .card.sel'); if (x) x.click(); }, 60); });
+      await sleep(1620);
+      await shot(p, 'steal-anim-matgo');
+      report.steal = await p.evaluate(() => ({ ghostT: [...document.querySelectorAll('.flyer')].map((e) => e.className + ' ' + e.title), stealGlow: document.querySelectorAll('.flyer.steal-glow').length, hiddenCaps: document.querySelectorAll('[data-cap].fx-hide').length }));
+      await sleep(900);
+      report.stealDone = await p.evaluate(() => ({ ghostT: [...document.querySelectorAll('.flyer.ghostc')].map((e) => e.title + '@' + e.style.transform + '|' + e.getAnimations().map((a) => a.playState).join(',')), hid: [...document.querySelectorAll('[data-cap].fx-hide')].map((e) => e.dataset.cap), ghosts: document.querySelectorAll('.flyer.ghostc').length, hiddenCaps: document.querySelectorAll('[data-cap].fx-hide').length, toasts: [...document.querySelectorAll('.toast')].map((t) => t.textContent) }));
+    }
     s.close();
     await p.close();
   }

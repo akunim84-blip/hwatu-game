@@ -1,4 +1,4 @@
-/* 친구끼리 화투 - 클라이언트 (vanilla JS) — AI_V1: AI 상대 지원 · MATGO_V2: 셔플/한 장씩 돌리기 + 족보 힌트 */
+/* 친구끼리 화투 - 클라이언트 (vanilla JS) — AI_V1: AI 상대 지원 · MATGO_V2: 셔플/한 장씩 돌리기 + 족보 힌트 · CAPTURE_V1: 먹기/피 뺏기 애니메이션 · ROOMS_V1: 진행 중인 방 목록/관전/AI 자리 넘겨받기 */
 (function () {
   const { HWATU, SEOTDA, MONTH_NAMES, typeLabel } = window.HwatuCards;
   const H = window.HwatuHints;
@@ -70,12 +70,17 @@
       });
     }
   });
+  // 진행 중인 방 목록 (첫 화면에서 실시간 갱신)
+  socket.on('connect', () => socket.emit('watchRooms', {}, () => {}));
+  socket.on('rooms', (list) => { ui.rooms = list || []; if (!S) { const el = document.getElementById('room-list'); if (el) el.innerHTML = roomListHTML(); } });
   socket.on('kicked', () => { LS.del('hw_room'); S = null; toast('방장이 방에서 내보냈습니다'); history.replaceState(null, '', '/'); render(); });
   socket.on('disconnect', () => toast('연결이 끊겼습니다. 다시 연결 중…'));
   socket.on('state', (st) => {
     const prev = S;
     const snap = snapshotRects();
     S = st;
+    if (st.spectator && (!prev || !prev.spectator || prev.room.code !== st.room.code)) toast(st.spectator.waiting ? '👀 관전 중 — 다음 판부터 AI 자리에서 참여합니다' : '👀 관전 중 (자리가 모두 찼어요)', true);
+    else if (!st.spectator && prev && prev.spectator && prev.room.code === st.room.code) toast('🎉 이제 참여합니다! AI 자리를 넘겨받았어요', true);
     const r = st.room, g = st.game;
     const pg = prev && prev.room.code === r.code ? prev.game : null;
     const sameRoom = prev && prev.room.code === r.code;
@@ -89,6 +94,10 @@
     const playKey = lp ? r.round + ':' + lp.seq : null;
     const newPlay = !!(lp && pg && pg.kind !== 'seotda' && prev.room.round === r.round && playKey !== ui.lastPlayKey);
     ui.lastPlayKey = playKey;
+    const lc = g && g.kind !== 'seotda' ? g.lastCapture : null;
+    const capKey = lc ? r.round + ':' + lc.seq : null;
+    const newCap = !!(lc && pg && pg.kind !== 'seotda' && prev.room.round === r.round && capKey !== ui.lastCapKey);
+    ui.lastCapKey = capKey;
     // 족보 완성 토스트 (맞고/고스톱)
     if (g && pg && g.kind !== 'seotda' && pg.kind === g.kind && prev.room.round === r.round && pg.players.length === g.players.length) {
       g.players.forEach((pl, i) => {
@@ -116,7 +125,8 @@
     render();
     try {
       if (newDeal) startDeal(g);
-      else if (newPlay) { if (g.result) FX.tak(); else playAnim(g, lp, snap); }
+      else if (newPlay) { if (g.result) FX.tak(); else playAnim(g, lp, snap, newCap ? lc : null); }
+      else if (newCap && !g.result) captureAnim(g, lc, snap, {}, 0);
       else if (seotdaReveal) FX.tak();
     } catch (e) { cancelAnim(); }
   });
@@ -174,26 +184,30 @@
   if (window.visualViewport) window.visualViewport.addEventListener('resize', refit);
 
   // ---------- 애니메이션 (패 돌리기 / 패 내기) ----------
-  const anim = { hidden: new Set(), flights: [], timers: [], ghost: null };
+  const anim = { hidden: new Set(), flights: [], timers: [], ghost: null, cardGhost: {}, moving: false, gen: 0 };
   const rectOf = (el) => { const b = el.getBoundingClientRect(); return { left: b.left, top: b.top, width: b.width, height: b.height }; };
   const centered = (box, w, h) => ({ left: box.left + box.width / 2 - w / 2, top: box.top + box.height / 2 - h / 2, width: w, height: h });
   function applyHidden() { anim.hidden.forEach((sel) => document.querySelectorAll(sel).forEach((e) => e.classList.add('fx-hide'))); }
   function hideSel(sel) { anim.hidden.add(sel); applyHidden(); }
   function showSel(sel) { anim.hidden.delete(sel); document.querySelectorAll(sel).forEach((e) => e.classList.remove('fx-hide')); }
   function cancelAnim() {
+    anim.gen++; // 이전 애니메이션의 늦게 도착한 콜백은 무시
     anim.timers.forEach(clearTimeout); anim.timers = [];
     anim.flights.forEach((f) => f.cancel()); anim.flights = [];
     anim.hidden.clear();
     document.querySelectorAll('.fx-hide').forEach((e) => e.classList.remove('fx-hide'));
     if (anim.ghost) { anim.ghost.remove(); anim.ghost = null; }
-    anim.dealing = false;
+    anim.dealing = false; anim.moving = false; anim.cardGhost = {};
     FX.clearLayer();
   }
   const later = (ms, fn) => { anim.timers.push(setTimeout(fn, ms)); };
   function cardSize(sel) { const e = document.querySelector(sel); return e ? rectOf(e) : null; }
   function snapshotRects() {
-    const s = { hand: {}, floorM: {}, deck: null, floor: null };
+    const s = { hand: {}, floorM: {}, floorId: {}, capId: {}, deck: null, floor: null, lfc: null };
     if (!S || !S.game || S.game.kind === 'seotda') return s;
+    document.querySelectorAll('.floor [data-floor]').forEach((e) => { s.floorId[e.dataset.floor] = rectOf(e); });
+    document.querySelectorAll('[data-cap]').forEach((e) => { s.capId[e.dataset.cap] = rectOf(e); });
+    const lf = document.querySelector('.deck .lfc'); if (lf) s.lfc = rectOf(lf);
     document.querySelectorAll('.hand [data-hand]').forEach((e) => { s.hand[e.dataset.hand] = rectOf(e); });
     document.querySelectorAll('.floor [data-floor]').forEach((e) => { const m = HWATU[Number(e.dataset.floor)].m; s.floorM[m] = rectOf(e); });
     const d = document.querySelector('.deck .card'); if (d) s.deck = rectOf(d);
@@ -319,6 +333,7 @@
   }
   // 패 돌리는 중 화면을 탭하면 건너뛰기
   document.addEventListener('pointerdown', () => {
+    if (anim.moving && !anim.dealing) { cancelAnim(); return; } // 먹기 애니메이션: 탭하면 바로 끝 (탭 자체는 그대로 동작)
     if (!anim.dealing) return;
     cancelAnim();
     anim.swallowUntil = Date.now() + 450;
@@ -341,8 +356,11 @@
     const box = fl ? rectOf(fl) : snap.floor;
     return { sel: null, rect: box ? centered(box, ref.width, ref.height) : { left: innerWidth / 2 - 25, top: innerHeight / 2 - 41, width: 50, height: 82 } };
   }
-  function playAnim(g, lp, snap) {
+  function playAnim(g, lp, snap, cap) {
     cancelAnim();
+    const gen = anim.gen;
+    const gained = new Set(cap ? cap.gained : []);
+    const landed = {}; // 먹힌 카드가 바닥에 내려앉은 위치 (먹기 애니메이션 출발점)
     if (!FX.canAnimate) { if (lp.card != null) FX.tak(); if (lp.flip != null) setTimeout(() => FX.tak(), 250); return; }
     let t = 0;
     if (lp.card != null) {
@@ -355,10 +373,11 @@
       if (from && dest.rect) {
         if (dest.sel) hideSel(dest.sel);
         anim.flights.push(FX.fly(hw(lp.card), from, dest.rect, {
-          duration: 280, rot0: lp.seat === g.mySeat ? 0 : -12, rot1: 0, arc: 26, lift: 1.15, linger: !dest.sel,
-          onLand: () => { FX.tak(); if (dest.sel) showSel(dest.sel); },
+          duration: 280, rot0: lp.seat === g.mySeat ? 0 : -12, rot1: 0, arc: 26, lift: 1.15, linger: !dest.sel && !gained.has(lp.card),
+          onLand: () => { FX.tak(); if (dest.sel) showSel(dest.sel); if (gen === anim.gen && gained.has(lp.card)) ghostCard(lp.card, dest.rect); },
         }));
-        t = 420;
+        landed[lp.card] = dest.rect;
+        t = 380;
       } else FX.tak();
     }
     if (lp.flip != null) {
@@ -366,14 +385,111 @@
       const deckEl = document.querySelector('.deck .card');
       const from = deckEl ? rectOf(deckEl) : snap.deck;
       if (dd.sel) hideSel(dd.sel);
+      landed[lp.flip] = dd.rect;
       later(t, () => {
         if (!from) { FX.tak(); if (dd.sel) showSel(dd.sel); return; }
         anim.flights.push(FX.fly(hw(lp.flip), from, dd.rect, {
-          duration: 260, rot0: -6, arc: 16, lift: 1.1, linger: !dd.sel,
-          onLand: () => { FX.tak(0.85); if (dd.sel) showSel(dd.sel); },
+          duration: 260, rot0: -6, arc: 16, lift: 1.1, linger: !dd.sel && !gained.has(lp.flip),
+          onLand: () => { FX.tak(0.85); if (dd.sel) showSel(dd.sel); if (gen === anim.gen && gained.has(lp.flip)) ghostCard(lp.flip, dd.rect); },
         }));
       });
+      t += 300;
     }
+    if (cap) captureAnim(g, cap, snap, landed, t + 20);
+  }
+
+  // ---------- 먹기 / 피 뺏기 애니메이션 ----------
+  // 바닥에 남아 있는 것처럼 보이는 정지 카드 (새 상태에서는 이미 먹은 패 더미로 이동했으므로 대신 그려 줌)
+  function ghostCard(id, rect) {
+    if (anim.cardGhost[id]) return anim.cardGhost[id];
+    const w = document.createElement('div');
+    w.innerHTML = hw(id);
+    const el = w.firstElementChild;
+    el.classList.add('flyer', 'ghostc');
+    Object.assign(el.style, { width: rect.width + 'px', height: rect.height + 'px', transform: `translate(${rect.left}px,${rect.top}px)` });
+    FX.getLayer().appendChild(el);
+    anim.cardGhost[id] = el;
+    el._r = rect;
+    return el;
+  }
+  function moveEl(el, to, dur, opts) {
+    opts = opts || {};
+    const r0 = el._r;
+    const sx = to.width / r0.width, sy = to.height / r0.height;
+    const kf = [{ transform: `translate(${r0.left}px,${r0.top}px)`, opacity: 1 }];
+    if (opts.arc) kf.push({ transform: `translate(${(r0.left + to.left) / 2}px,${Math.min(r0.top, to.top) - opts.arc}px) scale(${(1 + sx) / 2 + 0.05},${(1 + sy) / 2 + 0.05})`, offset: 0.5 });
+    kf.push({ transform: `translate(${to.left}px,${to.top}px) scale(${sx},${sy})`, opacity: 1 });
+    el.style.transformOrigin = '0 0';
+    try {
+      const a = el.animate(kf, { duration: dur, easing: 'cubic-bezier(.4,.1,.3,1)', fill: 'forwards' });
+      anim.flights.push({ cancel: () => { try { a.cancel(); } catch (e) {} } });
+      const gen = anim.gen;
+      a.onfinish = () => { if (opts.done && gen === anim.gen) opts.done(); };
+    } catch (e) { if (opts.done) opts.done(); }
+  }
+  function captureAnim(g, cap, snap, landed, t0) {
+    if (!FX.canAnimate) { if (cap.gained.length) setTimeout(() => FX.swish(), t0); return; }
+    anim.moving = true;
+    const capSel = (id) => `[data-cap="${id}"]`;
+    const ref = cardSize('.floor .card') || { width: 50, height: 82 };
+    // 출발 위치: 방금 내려앉은 자리 → 직전 바닥 위치 → 뒤집은 패 자리 → 더미
+    const srcOf = (id) => landed[id] || snap.floorId[id] || (snap.lfc && { left: snap.lfc.left, top: snap.lfc.top, width: ref.width, height: ref.height }) || snap.deck || centered(snap.floor || { left: 0, top: 0, width: innerWidth, height: innerHeight }, ref.width, ref.height);
+    const gained = cap.gained.filter((id) => document.querySelector(capSel(id)));
+    const steals = (cap.steals || []).filter((x) => document.querySelector(capSel(x.card)));
+    gained.forEach((id) => hideSel(capSel(id)));
+    steals.forEach((x) => hideSel(capSel(x.card)));
+    // 원래 바닥에 있던 먹힌 패는 곧바로 정지 카드로 그 자리에 계속 보이게
+    gained.forEach((id) => { if (!landed[id] && snap.floorId[id]) ghostCard(id, snap.floorId[id]); });
+    const GATHER = 140, PAUSE = 230, FLY = 380;
+    let t = t0;
+    if (gained.length) {
+      later(t, () => {
+        // 1) 같은 달끼리 착 모이기 + 반짝
+        const byM = {};
+        gained.forEach((id) => { (byM[HWATU[id].m] = byM[HWATU[id].m] || []).push(id); });
+        Object.values(byM).forEach((ids) => {
+          const anchor = srcOf(ids[0]);
+          ids.forEach((id, k) => {
+            const el = anim.cardGhost[id] || ghostCard(id, srcOf(id));
+            el.classList.add('cap-glow');
+            const to = { left: anchor.left + k * 5, top: anchor.top - k * 3, width: anchor.width, height: anchor.height };
+            moveEl(el, to, GATHER, { done: () => { el._r = to; } });
+          });
+        });
+      });
+      t += GATHER + PAUSE;
+      // 2) 먹은 패 더미로 휙
+      later(t, () => {
+        FX.swish();
+        gained.forEach((id, k) => {
+          const el = anim.cardGhost[id]; if (!el) return;
+          const target = document.querySelector(capSel(id));
+          if (!target) { el.remove(); delete anim.cardGhost[id]; return; }
+          later(k * 35, () => moveEl(el, rectOf(target), FLY, { arc: 20, done: () => { el.remove(); delete anim.cardGhost[id]; showSel(capSel(id)); } }));
+        });
+      });
+      t += FLY + gained.length * 35;
+    }
+    // 3) 피 뺏기: 상대 더미 → 내 더미
+    if (steals.length) {
+      later(Math.max(t0, t - 120), () => {
+        FX.swish(0.7, true);
+        steals.forEach((x, k) => {
+          const from = snap.capId[x.card] || seatBoxRect(g, x.from);
+          const target = document.querySelector(capSel(x.card));
+          if (!from || !target) { showSel(capSel(x.card)); return; }
+          const el = ghostCard(x.card, from);
+          el.classList.add('steal-glow');
+          later(k * 90, () => moveEl(el, rectOf(target), 420, { arc: 30, done: () => { el.remove(); delete anim.cardGhost[x.card]; showSel(capSel(x.card)); } }));
+        });
+      });
+      t = Math.max(t, t - 120 + 420 + steals.length * 90);
+    }
+    later(t + 80, () => {
+      anim.moving = false;
+      // 안전장치: 남은 정지 카드/숨김은 모두 정리
+      gained.concat(steals.map((x) => x.card)).forEach((id) => { const el = anim.cardGhost[id]; if (el) { el.remove(); delete anim.cardGhost[id]; } showSel(capSel(id)); });
+    });
   }
 
   function renderLanding() {
@@ -383,22 +499,25 @@
       ? `<div class="panel"><h3>🎉 초대받은 방: <span style="color:#ffcf4a">${esc(urlRoom)}</span></h3><button class="btn-primary" style="width:100%" data-act="joinUrl">이 방에 입장하기</button></div>`
       : '';
     $app.innerHTML = `<div class="pad" style="position:relative">${muteBtn('snd-float')}
-      <h1 class="title">🎴 친구끼리 화투</h1>
-      <p class="subtitle">섯다 · 맞고 · 고스톱 — 단톡방 친구들과 실시간으로!</p>
+      <h1 class="title brand">🎴 혁게임<span class="logo-sub">HYUK GAME</span></h1>
+      <p class="subtitle">고스톱 · 맞고 · 섯다 — 단톡방 친구들과 실시간으로!</p>
       <div class="panel"><h3>닉네임</h3><input id="nick" maxlength="12" placeholder="닉네임 입력" value="${esc(name)}"></div>
       ${joinBox}
+      <div class="panel rooms-panel"><h3>🟢 진행 중인 방 <small class="muted">누르면 바로 참여 · 실시간</small></h3><div id="room-list">${roomListHTML()}</div></div>
       <div class="panel"><h3>방 만들기</h3>
         <div class="game-pick">${Object.entries(GAME_INFO).map(([k, v]) => `<button data-game="${k}" class="${c.game === k ? 'sel' : ''}">${v.name}<small>${v.desc}</small></button>`).join('')}</div>
         <div class="muted">${c.game === 'seotda' ? '기본 판돈 (칩)' : '점당 칩'}</div>
         <div class="chips-pick">${[10, 50, 100, 500].map((v) => `<button data-pp="${v}" class="${c.perPoint === v ? 'sel' : ''}">${v}칩</button>`).join('')}</div>
         <input id="pp" type="number" inputmode="numeric" min="1" max="10000" value="${c.perPoint}">
         ${c.game !== 'seotda' ? `<label class="chk"><input type="checkbox" id="bonus" ${c.bonus ? 'checked' : ''}> 보너스 쌍피 2장 포함</label>` : ''}
+        ${privChk()}
         <button class="btn-primary" style="width:100%;margin-top:10px" data-act="create">방 만들기 (친구 초대)</button>
       </div>
       <div class="panel ai-panel"><h3>🤖 AI와 바로 하기 <small class="muted">혼자서 ${GAME_INFO[c.game].name} 연습</small></h3>
         <div class="muted">난이도</div>
         <div class="chips-pick">${[['easy', '쉬움'], ['normal', '보통']].map(([k, v]) => `<button data-lv="${k}" class="${c.level === k ? 'sel' : ''}">${v}</button>`).join('')}</div>
         ${c.game === 'seotda' ? `<div class="muted">AI 인원</div><div class="chips-pick">${[1, 2, 3, 4].map((v) => `<button data-aic="${v}" class="${c.aiCount === v ? 'sel' : ''}">${v}명</button>`).join('')}</div>` : `<div class="muted">AI ${c.game === 'matgo' ? '1명' : '2명'}과 대결</div>`}
+        ${privChk()}
         <button class="btn-blue" style="width:100%;margin-top:8px;font-size:16px" data-act="solo">🤖 ${GAME_INFO[c.game].name} AI와 바로 하기</button>
       </div>
       <div class="panel"><h3>코드로 참여</h3>
@@ -408,6 +527,18 @@
     </div>`;
   }
 
+  const privChk = () => `<label class="chk"><input type="checkbox" data-priv="1" ${ui.create.priv ? 'checked' : ''}> 🔒 비공개 (진행 중인 방 목록에 안 보이게)</label>`;
+  function roomListHTML() {
+    const list = ui.rooms || [];
+    if (!list.length) return '<div class="muted" style="text-align:center;padding:8px 0">지금 열린 방이 없어요. 방을 만들어 보세요!</div>';
+    const st = { lobby: ['대기 중', 'st-lobby'], playing: ['게임 중', 'st-play'], result: ['판 끝남', 'st-lobby'] };
+    const jl = { seat: '참여', next: '관전 → 다음 판 참여', watch: '관전' };
+    return `<ul class="rlist">${list.map((x) => `<li><button class="room-item" data-room="${esc(x.code)}">
+      <span class="rg">${esc(x.gameName)}</span>
+      <span class="rinfo"><b>${esc(x.host)}</b>님의 방 <small class="muted">${esc(x.code)}${x.round ? ` · ${x.round}판` : ''}</small><br>
+        <small>👤 ${x.humans}명${x.ai ? ` · 🤖 AI ${x.ai}` : ''} / ${x.max}자리${x.spectators ? ` · 👀 ${x.spectators}` : ''} · <span class="st ${st[x.status][1]}">${st[x.status][0]}</span></small></span>
+      <span class="rj ${x.join}">${jl[x.join]}</span></button></li>`).join('')}</ul>`;
+  }
   function getName() {
     const n = (document.getElementById('nick') || {}).value;
     const name = (n || '').trim();
@@ -428,6 +559,8 @@
     return `<ul class="plist">${r.players.map((p) => `<li class="${p.ai ? 'ai' : ''}"><div>${esc(p.name)}${p.ai ? `<span class="tag ai">AI·${p.level === 'easy' ? '쉬움' : '보통'}</span>` : ''}${p.id === r.hostId ? '<span class="tag">방장</span>' : ''}${p.id === S.me ? '<span class="tag" style="background:#4ae0ff">나</span>' : ''}${!p.connected ? '<span class="tag off">연결끊김</span>' : ''}${isHost() && p.id !== S.me && r.status !== 'playing' ? `<button class="btn-ghost" style="padding:4px 8px;font-size:11px;margin-left:6px" data-kick="${esc(p.id)}" ${p.ai ? 'data-ai="1"' : ''}>${p.ai ? '빼기' : '내보내기'}</button>` : ''}</div><div class="chip ${p.chips < 0 ? 'neg' : ''}">${num(p.chips)}칩</div></li>`).join('')}</ul>`;
   }
 
+  const hostPrivChk = () => (isHost() ? `<label class="chk" style="justify-content:center"><input type="checkbox" data-priv="host" ${S.room.private ? 'checked' : ''}> 🔒 비공개 방 (진행 중인 방 목록에 안 보이게)</label>` : '');
+  const specList = () => { const sp = S.room.spectators || []; return sp.length ? `<div class="muted" style="margin-top:6px">👀 관전 ${sp.length}명: ${sp.map((x) => esc(x.name) + (x.waiting ? ' (다음 판 참여)' : '')).join(', ')}</div>` : ''; };
   function renderLobby() {
     const r = S.room;
     const n = r.players.length;
@@ -439,8 +572,10 @@
         <div class="code-big">${esc(r.code)}</div>
         <div class="muted">방 코드</div>
         <button class="btn-kakao" style="width:100%;margin-top:10px;font-size:16px" data-act="share">💬 카톡으로 공유 (초대 링크)</button>
+        ${hostPrivChk()}
       </div>
-      <div class="panel"><h3>참가자 (${n}/${r.max}) · 필요 인원 ${need}</h3>${playersList()}
+      ${S.spectator ? '<div class="panel spec-note">👀 관전 중 — 자리가 모두 찼어요. 자리가 나면 참여할 수 있어요.</div>' : ''}
+      <div class="panel"><h3>참가자 (${n}/${r.max}) · 필요 인원 ${need}</h3>${playersList()}${specList()}
         ${isHost() && n < r.max ? `<div class="row ai-add"><button class="btn-blue" data-act="addAI">🤖 AI 추가</button><div class="chips-pick" style="flex:0 0 auto;margin:0">${[['easy', '쉬움'], ['normal', '보통']].map(([k, v]) => `<button data-lv="${k}" class="${ui.create.level === k ? 'sel' : ''}">${v}</button>`).join('')}</div></div>` : ''}
         ${isHost() && n < r.max ? '<div class="muted" style="margin-top:6px">빈 자리는 AI로 채울 수 있어요. 친구가 들어오면 AI가 자리를 비켜줍니다.</div>' : ''}</div>
       <div class="stack">
@@ -458,7 +593,8 @@
     const g = S.game;
     let extra = '';
     if (g && g.kind !== 'seotda' && g.mult > 1) extra = ` · x${g.mult}`;
-    return `<div class="hdr"><div class="t">🎴 ${esc(r.gameName)} · ${esc(r.code)}${r.round ? ` · ${r.round}판` : ''}${extra}</div>${muteBtn()}<button class="btn-ghost" data-act="rules">규칙</button><button class="btn-ghost" data-act="board">점수판</button></div>`;
+    const nsp = (r.spectators || []).length;
+    return `<div class="hdr"><div class="t">🎴 ${esc(r.gameName)} · ${esc(r.code)}${r.round ? ` · ${r.round}판` : ''}${extra}${nsp ? ` · 👀${nsp}` : ''}</div>${muteBtn()}<button class="btn-ghost" data-act="rules">규칙</button><button class="btn-ghost" data-act="board">점수판</button></div>`;
   }
 
   function renderGame() {
@@ -477,15 +613,14 @@
         <div class="muted">${num(chipsOf(s.id) - (g.result ? 0 : s.contrib))}칩 · 베팅 ${num(s.contrib)}</div>
         <div class="cards">${s.cards.map((c) => sd(c, 'sm' + (c != null ? '' : ''))).join('')}</div>
         <div class="hn">${s.handName ? esc(s.handName) : g.turn === i ? '고민 중…' : ''}</div></div>`;
-    let meBox = '';
+    let meBox = '', bar = '';
     if (me >= 0) {
       const s = g.seats[me];
       meBox = `<div class="sd-me ${g.turn === me ? '' : ''}">
         <div class="muted">${esc(s.name)} (나) · 보유 ${num(chipsOf(s.id) - (g.result ? 0 : s.contrib))}칩 · 베팅 ${num(s.contrib)}${s.folded ? ' · 다이' : ''}</div>
         <div class="cards">${s.cards.map((c) => sd(c, 'lg')).join('')}</div>
         <div class="hn">${esc(s.handName || '')}</div></div>`;
-    } else meBox = '<div class="sd-me">관전 중 — 다음 판부터 참여합니다</div>';
-    let bar = '';
+    } else { meBox = ''; bar = specBar(g); }
     if (me >= 0 && !g.result) {
       if (g.options.length) {
         const cls = { die: 'btn-ghost', check: 'btn-blue', bbing: 'btn-blue', call: 'btn-primary', half: 'btn-red', ddadang: 'btn-red' };
@@ -500,6 +635,7 @@
       ${meBox}<div class="bar">${bar}</div>`;
   }
 
+  const specBar = (g) => !S.spectator ? '<div class="turnbar wait spec">✅ 자리 확보 · 다음 판부터 참여합니다</div><div class="actbar idle"><button class="btn-ghost" disabled>다음 판 기다리는 중…<small>&nbsp;</small></button></div>' : `<div class="turnbar wait spec">👀 관전 중${S.spectator && S.spectator.waiting ? ' · <b>다음 판부터 참여</b>' : ''}${!g.result && g.turn >= 0 ? ` · ${esc((g.players || g.seats)[g.turn].name)} 차례` : ''}</div><div class="actbar"><button class="btn-ghost" data-act="leave">관전 나가기</button></div>`;
   // ---------- 맞고/고스톱 ----------
   function groupCaptured(ids) {
     const groups = { gwang: [], yeol: [], tti: [], pi: [] };
@@ -507,7 +643,7 @@
     const piVal = groups.pi.reduce((s, id) => s + HWATU[id].piValue, 0);
     return [['광', groups.gwang, groups.gwang.length], ['열', groups.yeol, groups.yeol.length], ['띠', groups.tti, groups.tti.length], ['피', groups.pi, piVal]]
       .filter((x) => x[1].length)
-      .map(([lb, arr, cnt]) => `<div class="capg">${arr.map((id) => hw(id, 'sm')).join('')}<span class="cnt">${cnt}</span></div>`).join('');
+      .map(([lb, arr, cnt]) => `<div class="capg">${arr.map((id) => hw(id, 'sm', `data-cap="${id}"`)).join('')}<span class="cnt">${cnt}</span></div>`).join('');
   }
   function gostopHTML(g) {
     const me = g.mySeat;
@@ -558,7 +694,7 @@
           bar = `<div class="turnbar wait">${esc(g.players[g.turn].name)}님 차례${g.phase === 'goStop' ? ' (고/스톱 고민 중)' : ''}</div>${idleBar}`;
         }
       }
-    }
+    } else bar = specBar(g);
     return `<div class="opps">${oppHTML}</div>
       <div class="floor-wrap">${threats.length ? `<div class="warns">${threats.slice(0, 3).map((t) => `<div class="warn">⚠️ ${esc(t.name)} ${t.set} 1장 남음${t.blockers.length || t.inHand.length ? ' · <b>막기 가능</b>' : ''}</div>`).join('')}</div>` : ''}
         <div class="deck">${g.deckCount ? hw(null, 'sm') : '<div class="card sm empty"></div>'}<span>남은 패<br><b>${g.deckCount}</b>장</span>${g.lastFlip != null ? `<span class="lf">뒤집은 패</span>${hw(g.lastFlip, 'sm lfc')}` : ''}</div>
@@ -582,7 +718,8 @@
     }
     const deltas = Object.entries(res.chipDelta).map(([id, d]) => {
       const p = r.players.find((x) => x.id === id);
-      return `<div class="delta"><span>${esc(p ? p.name : '?')}</span><span class="chip ${d < 0 ? 'neg' : ''}">${fmt(d)} → ${num(p ? p.chips : 0)}칩</span></div>`;
+      const gp = (g.players || g.seats || []).find((x) => x.id === id);
+      return `<div class="delta"><span>${esc(p ? p.name : gp ? gp.name : '?')}</span><span class="chip ${d < 0 ? 'neg' : ''}">${fmt(d)} → ${num(p ? p.chips : 0)}칩</span></div>`;
     }).join('');
     const title = res.nagari ? '😮 나가리' : res.winners.includes(S.me) ? '🎉 승리!' : `${esc(res.winnerNames.join(', '))} 승리`;
     return `<div class="modal-bg"><div class="modal"><h2>${title}</h2>
@@ -635,6 +772,7 @@
       ${ps.map((p, i) => `<tr><td>${i + 1}</td><td>${esc(p.name)}</td><td>${p.wins}</td><td class="chip ${p.chips < 0 ? 'neg' : ''}">${num(p.chips)}</td><td>${fmt(p.chips - r.startChips)}</td></tr>`).join('')}</table>
       <h4 style="margin:14px 0 6px">최근 판</h4>
       <div class="muted">${r.history.length ? r.history.slice().reverse().map((h) => `${h.round}판: ${esc(h.summary)}`).join('<br>') : '아직 기록이 없습니다'}</div>
+      ${specList()}${hostPrivChk()}
       <div class="btns">${isHost() && r.status !== 'playing' ? '<button class="btn-red" data-act="reset">칩 초기화</button>' : ''}<button class="btn-ghost" data-act="close">닫기</button></div>
       <p class="notice" style="margin:8px 0 0">칩은 게임 내 가상 포인트이며 현금 가치가 없습니다.</p></div></div>`;
   }
@@ -656,9 +794,9 @@
   async function share() {
     const r = S.room;
     const url = location.origin + '/?room=' + r.code;
-    const text = `🎴 ${r.gameName} 한 판 하자! 방 코드 ${r.code} (가상 칩 게임)`;
+    const text = `🎴 혁게임 ${r.gameName} 한 판 하자! 방 코드 ${r.code} (가상 칩 게임)`;
     if (navigator.share) {
-      try { await navigator.share({ title: '친구끼리 화투', text, url }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+      try { await navigator.share({ title: '혁게임', text, url }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
     }
     const full = text + '\n' + url;
     try { await navigator.clipboard.writeText(full); toast('초대 링크 복사됨! 카톡방에 붙여넣기 하세요'); return; } catch (e) {}
@@ -694,6 +832,10 @@
     document.querySelectorAll('.floor [data-floor]').forEach((e) => { if (HWATU[Number(e.dataset.floor)].m === m) e.classList.add('hov'); });
   });
   $app.addEventListener('click', async (ev) => {
+    const pv = ev.target.closest('[data-priv]');
+    if (pv) { if (pv.dataset.priv === '1') { ui.create.priv = pv.checked; document.querySelectorAll('[data-priv="1"]').forEach((e) => { e.checked = pv.checked; }); } else emit('setPrivate', { private: pv.checked }); return; }
+    const rm = ev.target.closest('[data-room]');
+    if (rm) return joinCode(rm.dataset.room);
     const t = ev.target.closest('[data-lv],[data-aic],[data-kick],[data-act],[data-game],[data-pp],[data-hand],[data-choose],[data-shake],[data-flipc],[data-gs],[data-bet],[data-floor],[data-stop]');
     if (!t) return;
     const d = t.dataset;
@@ -733,7 +875,7 @@
         const name = getName(); if (!name) return;
         const pp = Number(document.getElementById('pp').value) || ui.create.perPoint;
         const bonusEl = document.getElementById('bonus');
-        const r = await emit('createRoom', { game: ui.create.game, perPoint: pp, bonus: bonusEl ? bonusEl.checked : true, pid, name });
+        const r = await emit('createRoom', { game: ui.create.game, perPoint: pp, bonus: bonusEl ? bonusEl.checked : true, pid, name, private: !!ui.create.priv });
         if (r.ok) { LS.set('hw_room', r.code); history.replaceState(null, '', '/?room=' + r.code); }
         return;
       }
@@ -743,7 +885,7 @@
         const bonusEl = document.getElementById('bonus');
         const c = ui.create;
         ui.expectDeal = true;
-        const r = await emit('createRoom', { game: c.game, perPoint: pp, bonus: bonusEl ? bonusEl.checked : true, pid, name, ai: true, level: c.level, aiCount: c.aiCount });
+        const r = await emit('createRoom', { game: c.game, perPoint: pp, bonus: bonusEl ? bonusEl.checked : true, pid, name, ai: true, level: c.level, aiCount: c.aiCount, private: !!c.priv });
         if (r.ok) { LS.set('hw_room', r.code); history.replaceState(null, '', '/?room=' + r.code); }
         return;
       }
@@ -762,7 +904,7 @@
       case 'playSel': if (ui.sel != null) tryPlay(ui.sel); return;
       case 'flipOnly': ui.sel = null; return emit('action', { type: 'flipOnly' });
       case 'leave':
-        if (!confirm('방에서 나갈까요?')) return;
+        if (!(S && S.spectator) && !confirm('방에서 나갈까요?')) return;
         await emit('leave'); LS.del('hw_room'); S = null; history.replaceState(null, '', '/'); return render();
     }
   });
