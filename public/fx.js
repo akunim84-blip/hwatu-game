@@ -95,6 +95,35 @@
     const g2 = env(c, t, 0.12, 0.045);
     o.connect(g2); g2.connect(master); o.start(t); o.stop(t + 0.06);
   }
+  // 셔플 소리: 반으로 가를 때 '슥' + 리플(촤라락) 연속 틱 + 정리할 때 '톡톡'
+  function shuffle(total) {
+    const c = ready(); if (!c) return;
+    total = (total || 1000) / 1000;
+    const t0 = c.currentTime + 0.01;
+    // 슥 (가르기)
+    const n0 = noise(c, t0, 0.6);
+    const bp0 = c.createBiquadFilter(); bp0.type = 'bandpass'; bp0.frequency.setValueAtTime(900, t0); bp0.frequency.linearRampToValueAtTime(2500, t0 + 0.14); bp0.Q.value = 0.8;
+    const g0 = env(c, t0, 0.22, 0.16, 0.03);
+    n0.connect(bp0); bp0.connect(g0); g0.connect(master);
+    // 촤라락: 점점 빨라지는 짧은 노이즈 틱들
+    const rs = t0 + total * 0.34, re = t0 + total * 0.74;
+    let t = rs, gap = 0.022;
+    while (t < re) {
+      const nn = noise(c, t, 0.9 + Math.random() * 0.4);
+      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2600 + Math.random() * 1600; bp.Q.value = 1.4;
+      const gg = env(c, t, 0.13 + Math.random() * 0.08, 0.018, 0.0008);
+      nn.connect(bp); bp.connect(gg); gg.connect(master);
+      t += gap; gap = Math.max(0.008, gap * 0.93);
+    }
+    // 톡톡 (패 가지런히)
+    [0.8, 0.9].forEach((f, k) => {
+      const tt = t0 + total * f;
+      const nn = noise(c, tt, 1);
+      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1300 - k * 200; bp.Q.value = 1.2;
+      const gg = env(c, tt, 0.45, 0.05);
+      nn.connect(bp); bp.connect(gg); gg.connect(master);
+    });
+  }
   function beep(freq, dur) {
     const c = ready(); if (!c) return;
     try {
@@ -164,5 +193,5 @@
   }
   function clearLayer() { if (layer) layer.innerHTML = ''; }
 
-  window.HwatuFX = { tak, tick, beep, unlock, isMuted: () => muted, setMuted, fly, clearLayer, canAnimate };
+  window.HwatuFX = { getLayer, tak, tick, shuffle, beep, unlock, isMuted: () => muted, setMuted, fly, clearLayer, canAnimate };
 })();

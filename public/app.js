@@ -1,6 +1,7 @@
-/* 친구끼리 화투 - 클라이언트 (vanilla JS) — AI_V1: AI 상대 지원 */
+/* 친구끼리 화투 - 클라이언트 (vanilla JS) — AI_V1: AI 상대 지원 · MATGO_V2: 셔플/한 장씩 돌리기 + 족보 힌트 */
 (function () {
   const { HWATU, SEOTDA, MONTH_NAMES, typeLabel } = window.HwatuCards;
+  const H = window.HwatuHints;
   const $app = document.getElementById('app');
   const LS = {
     get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -45,16 +46,18 @@
 
   // 카드 이미지: public/cards/cNN.png (Wikimedia Commons "Hwatu" 세트, CC BY-SA 4.0 — public/cards/LICENSE.txt)
   const imgOf = (hid) => `/cards/c${String(hid).padStart(2, '0')}.png`;
-  function cardHTML(desc, cls, attrs, hid) {
+  function cardHTML(desc, cls, attrs, hid, extra) {
     cls = cls || '';
     if (desc == null) return `<div class="card back ${cls}" ${attrs || ''}></div>`;
     const lb = typeLabel(desc);
     if (desc.bonus) return `<div class="card img bonus ${cls}" style="background-image:url(/cards/bonus.svg)" ${attrs || ''} title="보너스 쌍피"></div>`;
     const tag = desc.type === 'ssangpi' ? '<span class="tb">쌍피</span>' : '';
-    return `<div class="card img t-${desc.type} ${cls}" style="background-image:url(${imgOf(hid)});--mc:${MC[desc.m]}" ${attrs || ''} title="${desc.m}월 ${lb}"><span class="mb">${desc.m}</span>${tag}</div>`;
+    return `<div class="card img t-${desc.type} ${cls}" style="background-image:url(${imgOf(hid)});--mc:${MC[desc.m]}" ${attrs || ''} title="${desc.m}월 ${lb}"><span class="mb">${desc.m}</span>${tag}${extra || ''}</div>`;
   }
   (function preload() { for (let i = 0; i < 48; i++) { const im = new Image(); im.src = imgOf(i); } ['back.svg', 'bonus.svg'].forEach((f) => { const im = new Image(); im.src = '/cards/' + f; }); })();
-  const hw = (id, cls, attrs) => cardHTML(id == null ? null : HWATU[id], cls, attrs, id);
+  const hw = (id, cls, attrs, extra) => cardHTML(id == null ? null : HWATU[id], cls, attrs, id, extra);
+  // 족보 진행 배지 (먹은 패 기준)
+  const badgesHTML = (captured) => H.badges(captured).map((b) => `<span class="b b-${b.key}${b.done ? ' done' : b.n === b.need - 1 ? ' near' : ''}">${b.label}</span>`).join('');
   const sd = (id, cls, attrs) => cardHTML(id == null ? null : SEOTDA[id], cls, attrs, id == null ? null : (SEOTDA[id].m - 1) * 4 + (id % 2));
 
   // ---------- 소켓 ----------
@@ -77,13 +80,22 @@
     const pg = prev && prev.room.code === r.code ? prev.game : null;
     const sameRoom = prev && prev.room.code === r.code;
     // 새 판(또는 섯다 재경기) → 패 돌리기 애니메이션
-    const newDeal = !!(g && sameRoom && !g.result && (r.round !== prev.room.round || (g.kind === 'seotda' && pg && pg.kind === 'seotda' && g.redeals !== pg.redeals)));
+    let newDeal = !!(g && sameRoom && !g.result && (r.round !== prev.room.round || (g.kind === 'seotda' && pg && pg.kind === 'seotda' && g.redeals !== pg.redeals)));
+    if (ui.expectDeal && g && !g.result) { newDeal = true; } // 'AI와 바로 하기': 방 만들자마자 첫 판
+    if (g || !ui.expectDeal) ui.expectDeal = false;
     if (!g || (sameRoom && r.round !== prev.room.round)) ui.fitU = null;
     // 맞고/고스톱: 누군가 패를 냄 → 손→바닥 애니메이션 + '탁'
     const lp = g && g.kind !== 'seotda' ? g.lastPlay : null;
     const playKey = lp ? r.round + ':' + lp.seq : null;
     const newPlay = !!(lp && pg && pg.kind !== 'seotda' && prev.room.round === r.round && playKey !== ui.lastPlayKey);
     ui.lastPlayKey = playKey;
+    // 족보 완성 토스트 (맞고/고스톱)
+    if (g && pg && g.kind !== 'seotda' && pg.kind === g.kind && prev.room.round === r.round && pg.players.length === g.players.length) {
+      g.players.forEach((pl, i) => {
+        const before = new Set(H.completed(pg.players[i].captured));
+        H.completed(pl.captured).filter((x) => !before.has(x)).forEach((x) => setTimeout(() => toast(`🎉 ${pl.name} ${x} 완성!`, true), 550));
+      });
+    }
     const seotdaReveal = !!(g && g.kind === 'seotda' && g.result && pg && !pg.result && g.result.reveal && g.result.reveal.length);
     // 진행 상황이 바뀌면 진행 중인 애니메이션은 즉시 정리 (서버 상태가 항상 우선)
     if (!sameRoom || r.actSeq !== prev.room.actSeq || r.round !== prev.room.round) cancelAnim();
@@ -174,6 +186,7 @@
     anim.hidden.clear();
     document.querySelectorAll('.fx-hide').forEach((e) => e.classList.remove('fx-hide'));
     if (anim.ghost) { anim.ghost.remove(); anim.ghost = null; }
+    anim.dealing = false;
     FX.clearLayer();
   }
   const later = (ms, fn) => { anim.timers.push(setTimeout(fn, ms)); };
@@ -197,7 +210,7 @@
     if (!FX.canAnimate) return;
     const steps = []; // {sel|null, to: rect, html}
     const back = '<div class="card back"></div>';
-    let from;
+    let from, lead = 0;
     if (g.kind === 'seotda') {
       const c = document.querySelector('.sd-center'); if (!c) return;
       const ref = cardSize('.sd-seat .card') || cardSize('.sd-me .card') || { width: 34, height: 55 };
@@ -217,48 +230,103 @@
       Object.assign(anim.ghost.style, { left: from.left + 'px', top: from.top + 'px', width: from.width + 'px', height: from.height + 'px' });
       document.body.appendChild(anim.ghost);
     } else {
-      const d = document.querySelector('.deck .card'); if (!d) return;
-      from = rectOf(d);
-      const n = g.players.length, me = g.mySeat;
-      const myIds = [...document.querySelectorAll('.hand [data-hand]')].map((e) => e.dataset.hand);
-      const floorIds = [...document.querySelectorAll('.floor [data-floor]')].map((e) => e.dataset.floor);
+      // 맞고/고스톱: 가운데서 셔플 → 서버가 보낸 실제 돌린 순서(g.deal)대로 한 장씩
+      const fl = document.querySelector('.floor-wrap'); if (!fl) return;
+      const ref = cardSize('.floor .card') || { width: 50, height: 82 };
+      from = centered(rectOf(fl), ref.width, ref.height);
+      const me = g.mySeat;
       const oppCard = cardSize('.opp .card') || { width: 24, height: 40 };
-      const rounds = Math.max(myIds.length, ...g.players.map((p) => p.handCount));
-      let fi = 0;
-      const order = []; for (let k = 0; k < n; k++) order.push((g.turn + k + n) % n);
-      for (let r = 0; r < rounds; r++) {
-        for (const i of order) {
-          if (i === me) {
-            if (r < myIds.length) { const sel = `.hand [data-hand="${myIds[r]}"]`; const el = document.querySelector(sel); if (el) steps.push({ sel, to: rectOf(el), html: back }); }
-          } else if (r < g.players[i].handCount) {
-            const b = seatBoxRect(g, i); if (b) steps.push({ sel: null, to: centered(b, oppCard.width * 1.2, oppCard.height * 1.2), html: back, opp: true });
+      const seq = g.deal && g.deal.length ? g.deal : null;
+      if (!seq) return;
+      for (const d of seq) {
+        if (d.to === 'hand') {
+          if (d.seat === me) {
+            const sel = `.hand [data-hand="${d.card}"]`; const el = document.querySelector(sel);
+            if (el) steps.push({ sel, to: rectOf(el), html: back });
+          } else {
+            const b = seatBoxRect(g, d.seat); if (b) steps.push({ sel: null, to: centered(b, oppCard.width * 1.2, oppCard.height * 1.2), html: back, opp: true });
           }
-        }
-        while (fi < floorIds.length && fi < Math.ceil((floorIds.length * (r + 1)) / rounds)) {
-          const sel = `.floor [data-floor="${floorIds[fi]}"]`; const el = document.querySelector(sel);
-          if (el) steps.push({ sel, to: rectOf(el), html: back });
-          fi++;
+        } else if (d.to === 'floor') {
+          const sel = `.floor [data-floor="${d.card}"]`; const el = document.querySelector(sel);
+          if (el) steps.push({ sel, to: rectOf(el), html: hw(d.card) });
+          else steps.push({ sel: null, to: { left: from.left + ref.width * 1.2, top: from.top, width: ref.width, height: ref.height }, html: hw(d.card), linger: true });
+        } else if (d.to === 'cap') {
+          // 바닥에 나온 보너스패 → 선에게
+          const b = seatBoxRect(g, d.seat);
+          if (b) steps.push({ sel: null, from: { left: from.left + ref.width * 1.2, top: from.top, width: ref.width, height: ref.height }, to: centered(b, oppCard.width * 1.2, oppCard.height * 1.2), html: hw(d.card), opp: true });
         }
       }
+      lead = FX.canAnimate ? 1000 : 0;
+      hideSel('.deck > .card.back');
+      steps.push({ sel: '.deck > .card.back', reveal: true });
+      g.players.forEach((p, i) => steps.push({ sel: i === me ? '.mine .bdg' : `.opp[data-seat="${i}"] .bdg`, reveal: true }));
+      shuffleAnim(from, lead);
     }
     steps.forEach((st) => { if (st.sel) hideSel(st.sel); });
     const reveals = steps.filter((st) => st.reveal);
     for (let k = steps.length - 1; k >= 0; k--) if (steps[k].reveal) steps.splice(k, 1);
     if (!steps.length) { cancelAnim(); return; }
     const N = steps.length;
-    const gap = Math.max(45, Math.min(300, 1900 / N));
-    const dur = 300;
+    const gap = g.kind === 'seotda' ? Math.max(45, Math.min(300, 1900 / N)) : Math.max(40, Math.min(110, 2100 / N));
+    const dur = g.kind === 'seotda' ? 300 : 270;
+    anim.dealing = true;
     steps.forEach((st, k) => {
-      later(k * gap, () => {
-        const f = FX.fly(st.html, from, st.to, {
-          duration: dur, rot0: -10 + Math.random() * 6, arc: 10, lift: 1.05, fade: !!st.opp, shrink: st.opp ? 0.7 : 0,
+      later(lead + k * gap, () => {
+        const f = FX.fly(st.html, st.from || from, st.to, {
+          duration: dur, rot0: -10 + Math.random() * 6, arc: 10, lift: 1.05, fade: !!st.opp, shrink: st.opp ? 0.7 : 0, linger: !!st.linger,
           onLand: () => { FX.tick(); if (st.sel) showSel(st.sel); },
         });
         anim.flights.push(f);
       });
     });
-    later((N - 1) * gap + dur + 60, () => { reveals.forEach((st) => showSel(st.sel)); if (anim.ghost) { anim.ghost.remove(); anim.ghost = null; } anim.flights = []; anim.timers = []; });
+    later(lead + (N - 1) * gap + dur + 60, () => { reveals.forEach((st) => showSel(st.sel)); if (anim.ghost) { anim.ghost.remove(); anim.ghost = null; } anim.flights = []; anim.timers = []; anim.dealing = false; });
   }
+
+  // 가운데 더미 셔플 애니메이션 (반으로 갈라 리플 → 가지런히 → 컷), 끝나면 더미는 anim.ghost로 남아 패를 돌림
+  function shuffleAnim(at, total) {
+    const L = FX.getLayer();
+    const pile = document.createElement('div');
+    pile.className = 'shuffle-pile';
+    Object.assign(pile.style, { left: at.left + 'px', top: at.top + 'px', width: at.width + 'px', height: at.height + 'px' });
+    const K = 10;
+    const cards = [];
+    for (let i = 0; i < K; i++) {
+      const c = document.createElement('div');
+      c.className = 'card back sp';
+      c.style.width = at.width + 'px'; c.style.height = at.height + 'px';
+      pile.appendChild(c); cards.push(c);
+    }
+    L.appendChild(pile);
+    anim.ghost = pile;
+    FX.shuffle(total);
+    if (!FX.canAnimate || !total) return;
+    const W = at.width * 0.75;
+    cards.forEach((c, i) => {
+      const left = i % 2 === 0, dir = left ? -1 : 1;
+      const y0 = -i * 0.6;
+      const riffleAt = 0.34 + (i / K) * 0.36;
+      const kf = [
+        { transform: `translate(0px,${y0}px) rotate(0deg)`, offset: 0 },
+        { transform: `translate(${dir * W}px,${y0 + 4}px) rotate(${dir * 8}deg)`, offset: 0.28 },
+        { transform: `translate(${dir * W}px,${y0 + 4}px) rotate(${dir * 8}deg)`, offset: riffleAt },
+        { transform: `translate(${dir * 4}px,${y0 - 3}px) rotate(${dir * 2}deg)`, offset: Math.min(0.76, riffleAt + 0.1) },
+        { transform: `translate(0px,${y0}px) rotate(0deg)`, offset: 0.8 },
+        { transform: `translate(0px,${y0 - (i >= K / 2 ? at.height * 0.45 : 0)}px) rotate(0deg)`, offset: 0.9 },
+        { transform: `translate(0px,${y0}px) rotate(0deg)`, offset: 1 },
+      ];
+      try { anim.flights.push({ cancel: ((a) => () => { try { a.cancel(); } catch (e) {} })(c.animate(kf, { duration: total, easing: 'ease-in-out', fill: 'forwards' })) }); } catch (e) {}
+    });
+  }
+  // 패 돌리는 중 화면을 탭하면 건너뛰기
+  document.addEventListener('pointerdown', () => {
+    if (!anim.dealing) return;
+    cancelAnim();
+    anim.swallowUntil = Date.now() + 450;
+  }, true);
+  document.addEventListener('click', (e) => {
+    if (anim.swallowUntil && Date.now() < anim.swallowUntil) { e.stopPropagation(); e.preventDefault(); anim.swallowUntil = 0; }
+  }, true);
+
 
   function floorDest(id, snap) {
     const sel = `.floor [data-floor="${id}"]`;
@@ -448,7 +516,12 @@
     const oppHTML = opps.map(({ p, i }) => `<div data-seat="${i}" class="opp ${g.turn === i ? 'turn' : ''}">
       <div class="nm"><span>${esc(p.name)}</span><span style="color:#ffcf4a">${p.score}점</span></div>
       <div class="meta">🂠 ${p.handCount}장 · ${num(chipsOf(p.id))}칩${p.go ? ` · <b style="color:#ff8a80">${p.go}고</b>` : ''}${p.shakes ? ` · 흔듦${p.shakes}` : ''}${p.ppeok ? ` · 뻑${p.ppeok}` : ''}</div>
-      <div class="caps">${groupCaptured(p.captured)}</div></div>`).join('');
+      <div class="caps">${groupCaptured(p.captured)}</div><div class="bdg">${badgesHTML(p.captured)}</div></div>`).join('');
+    // 힌트: 공개 정보(먹은 패·바닥) + 내 손패만 사용
+    const hv = { players: g.players, mySeat: me, floor: g.floor, hand: me >= 0 ? g.players[me].hand || [] : [] };
+    const threats = me >= 0 ? H.threats(hv) : [];
+    const tags = me >= 0 ? H.handTags(hv) : {};
+    const blockFloor = new Set(threats.flatMap((t) => t.onFloor));
     // floor grouped by month
     const byM = {};
     g.floor.forEach((id) => { const m = HWATU[id].m; (byM[m] = byM[m] || []).push(id); });
@@ -459,18 +532,20 @@
       if (oc) { selMonth = HWATU[oc.id].m; selMatches = oc.matches || []; } else ui.sel = null;
     }
     const pendingChoices = g.pending ? g.pending.choices : [];
-    const floorHTML = Object.keys(byM).map((m) => `<div class="fgrp">${byM[m].map((id) => hw(id, (selMatches.includes(id) || (me === g.turn && pendingChoices.includes(id)) ? 'hl' : '') + (id === g.lastFlip ? ' new' : ''), `data-floor="${id}"`)).join('')}</div>`).join('');
+    const floorHTML = Object.keys(byM).map((m) => `<div class="fgrp">${byM[m].map((id) => hw(id, (selMatches.includes(id) || (me === g.turn && pendingChoices.includes(id)) ? 'hl' : '') + (id === g.lastFlip ? ' new' : '') + (blockFloor.has(id) ? ' blk' : ''), `data-floor="${id}"`)).join('')}</div>`).join('');
     let mineHTML = '', handHTML = '', bar = '';
     const idleBar = '<div class="actbar idle"><button class="btn-ghost" disabled>기다리는 중…<small>&nbsp;</small></button></div>';
     if (me >= 0) {
       const p = g.players[me];
-      mineHTML = `<div class="mine"><div class="nm"><span>${esc(p.name)} (나) · ${num(chipsOf(p.id))}칩${p.go ? ` · <b style="color:#ff8a80">${p.go}고</b>` : ''}${p.shakes ? ` · 흔듦${p.shakes}` : ''}${p.bombFlips ? ` · 폭탄패 ${p.bombFlips}` : ''}</span><span style="color:#ffcf4a">${p.score}점 / ${g.target}점</span></div><div class="caps">${groupCaptured(p.captured) || '<span class="muted">아직 먹은 패 없음</span>'}</div></div>`;
+      mineHTML = `<div class="mine"><div class="nm"><span>${esc(p.name)} (나) · ${num(chipsOf(p.id))}칩${p.go ? ` · <b style="color:#ff8a80">${p.go}고</b>` : ''}${p.shakes ? ` · 흔듦${p.shakes}` : ''}${p.bombFlips ? ` · 폭탄패 ${p.bombFlips}` : ''}</span><span style="color:#ffcf4a">${p.score}점 / ${g.target}점</span></div><div class="caps">${groupCaptured(p.captured) || '<span class="muted">아직 먹은 패 없음</span>'}</div><div class="bdg">${badgesHTML(p.captured)}</div></div>`;
       const playable = o && o.phase === 'play';
       const sorted = (p.hand || []).slice().sort((a, b) => (HWATU[a].m || 13) - (HWATU[b].m || 13) || a - b);
       handHTML = `<div class="hand">${sorted.map((id) => {
         const oc = playable ? o.cards.find((c) => c.id === id) : null;
         const cls = (ui.sel === id ? 'sel' : '') + (oc && oc.matches && oc.matches.length ? ' hl' : '') + (!playable ? ' dim' : '');
-        return hw(id, cls, `data-hand="${id}"`);
+        const t = (tags[id] || [])[0];
+        const tagHTML = t ? `<span class="ht ht-${t.key}${t.kind === 'block' ? ' blk' : ''}${t.near ? ' near' : ''}">${t.label}</span>` : '';
+        return hw(id, cls + (t && t.kind === 'block' ? ' blkh' : ''), `data-hand="${id}"`, tagHTML);
       }).join('')}</div>`;
       if (!g.result) {
         if (playable) {
@@ -485,7 +560,7 @@
       }
     }
     return `<div class="opps">${oppHTML}</div>
-      <div class="floor-wrap">
+      <div class="floor-wrap">${threats.length ? `<div class="warns">${threats.slice(0, 3).map((t) => `<div class="warn">⚠️ ${esc(t.name)} ${t.set} 1장 남음${t.blockers.length || t.inHand.length ? ' · <b>막기 가능</b>' : ''}</div>`).join('')}</div>` : ''}
         <div class="deck">${g.deckCount ? hw(null, 'sm') : '<div class="card sm empty"></div>'}<span>남은 패<br><b>${g.deckCount}</b>장</span>${g.lastFlip != null ? `<span class="lf">뒤집은 패</span>${hw(g.lastFlip, 'sm lfc')}` : ''}</div>
         <div class="floor">${floorHTML || '<span class="muted">바닥이 비었습니다</span>'}</div></div>
       ${mineHTML}${handHTML}<div class="bar">${bar}</div>`;
@@ -610,6 +685,14 @@
     sendPlay(id, oc.matches && oc.matches[0]);
   }
 
+  // (PC) 손패에 마우스를 올리면 먹을 수 있는 바닥 패 강조
+  $app.addEventListener('mouseover', (ev) => {
+    const h = ev.target.closest('[data-hand]');
+    document.querySelectorAll('.floor .card.hov').forEach((e) => e.classList.remove('hov'));
+    if (!h) return;
+    const m = HWATU[Number(h.dataset.hand)].m;
+    document.querySelectorAll('.floor [data-floor]').forEach((e) => { if (HWATU[Number(e.dataset.floor)].m === m) e.classList.add('hov'); });
+  });
   $app.addEventListener('click', async (ev) => {
     const t = ev.target.closest('[data-lv],[data-aic],[data-kick],[data-act],[data-game],[data-pp],[data-hand],[data-choose],[data-shake],[data-flipc],[data-gs],[data-bet],[data-floor],[data-stop]');
     if (!t) return;
@@ -659,6 +742,7 @@
         const pp = Number(document.getElementById('pp').value) || ui.create.perPoint;
         const bonusEl = document.getElementById('bonus');
         const c = ui.create;
+        ui.expectDeal = true;
         const r = await emit('createRoom', { game: c.game, perPoint: pp, bonus: bonusEl ? bonusEl.checked : true, pid, name, ai: true, level: c.level, aiCount: c.aiCount });
         if (r.ok) { LS.set('hw_room', r.code); history.replaceState(null, '', '/?room=' + r.code); }
         return;

@@ -11,7 +11,8 @@ const PORT = Number(process.env.PORT || 3300);
 const START_CHIPS = 10000;
 const AUTO_MS = Number(process.env.AUTO_MS || 15000); // 연결 끊긴 플레이어 자동 진행
 const AI_DELAY_SCALE = Number(process.env.AI_DELAY_SCALE || 1); // 시뮬레이션용 AI 지연 배율
-const AI_DEAL_WAIT = 2500; // 새 판 패 돌리기 애니메이션 동안 AI 대기
+const AI_DEAL_WAIT = 2500; // 새 판 패 돌리기 애니메이션 동안 AI 대기 (섯다)
+const AI_DEAL_WAIT_GOSTOP = 3700; // 맞고/고스톱: 셔플(1초) + 한 장씩 돌리기(~2.4초)
 const GAMES = {
   seotda: { name: '섯다', min: 2, max: 5 },
   matgo: { name: '맞고', min: 2, max: 2 },
@@ -87,7 +88,7 @@ function scheduleAuto(room) {
     // AI: 사람처럼 0.7~1.5초 생각 (새 판이면 패 돌리기 애니메이션이 끝날 때까지 추가 대기)
     const e = room.engine;
     let ms = 700 + Math.random() * 800;
-    if (room.actSeq === room.roundStartSeq) ms += AI_DEAL_WAIT;
+    if (room.actSeq === room.roundStartSeq) ms += e.kind === 'seotda' ? AI_DEAL_WAIT : AI_DEAL_WAIT_GOSTOP;
     else if (e.kind !== 'seotda' && e.phase === 'play') ms += 250; // 직전 패 내기 애니메이션
     room.timer = setTimeout(() => {
       room.timer = null;

@@ -162,3 +162,25 @@ table.sb td,table.sb th{padding:7px 4px;border-bottom:1px solid rgba(255,255,255
 .ai-add{margin-top:8px}
 .ai-add .chips-pick button{flex:none;padding:8px 10px}
 .ai-panel h3 small{font-weight:400;margin-left:4px}
+/* 족보 힌트 (MATGO_V2) */
+.bdg{display:flex;flex-wrap:wrap;gap:2px 3px;margin-top:2px;min-height:0}
+.bdg .b{font-size:9.5px;line-height:13px;padding:0 4px;border-radius:6px;background:rgba(255,255,255,.12);color:#e8e4d8;font-weight:700;white-space:nowrap}
+.bdg .b.near{background:rgba(255,207,74,.28);color:#ffe08a}
+.bdg .b.done{background:linear-gradient(#ffcf4a,#f0a800);color:#3a2400;box-shadow:0 0 6px rgba(255,207,74,.7)}
+.bdg .b-hong.done{background:linear-gradient(#ff6b5b,#d8322a);color:#fff}
+.bdg .b-cheong.done{background:linear-gradient(#5fb2ff,#2a7de0);color:#fff}
+.bdg .b-cho.done{background:linear-gradient(#8bd66b,#3f9a2a);color:#fff}
+.card .ht{position:absolute;left:1px;bottom:2px;max-width:calc(100% - 2px);overflow:hidden;padding:0 3px;border-radius:4px;font-size:9px;line-height:13px;font-weight:900;color:#fff;background:#6c3fb5;box-shadow:0 0 0 1px #fff;white-space:nowrap;pointer-events:none}
+.card .ht-hong{background:#d8322a}.card .ht-cheong{background:#2a7de0}.card .ht-cho{background:#3f9a2a}.card .ht-godori{background:#b36b00}.card .ht-gwang{background:#8a6d00}
+.card .ht.near{animation:htpulse 1.2s infinite}
+.card .ht.blk{background:#111;color:#ff8a80;box-shadow:0 0 0 1px #ff8a80}
+@keyframes htpulse{50%{filter:brightness(1.35)}}
+.card.blk{box-shadow:0 0 0 2px #ff5252,0 0 10px #ff5252}
+.card.blkh:not(.sel){box-shadow:0 0 0 2px #ff5252,0 2px 4px rgba(0,0,0,.5)}
+.card.hov{box-shadow:0 0 0 3px #4ae0ff,0 0 10px #4ae0ff}
+#app .floor-wrap{position:relative}
+.warns{position:absolute;left:6px;right:6px;top:2px;display:flex;flex-direction:column;align-items:center;gap:2px;pointer-events:none;z-index:2}
+.warn{font-size:11px;font-weight:800;background:rgba(120,0,0,.78);color:#ffd7d2;border:1px solid #ff8a80;border-radius:10px;padding:1px 8px;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.warn b{color:#fff}
+.shuffle-pile{position:absolute;pointer-events:none}
+.shuffle-pile .sp{position:absolute;left:0;top:0;margin:0;box-shadow:0 1px 2px rgba(0,0,0,.5)}
