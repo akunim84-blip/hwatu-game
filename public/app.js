@@ -605,11 +605,16 @@
       <div class="row" style="margin-top:8px"><button class="btn-primary" data-act="savePin">저장</button><button class="btn-ghost" data-act="cancelPin">취소</button></div>
       <div class="muted" style="font-size:12px;margin-top:6px">다른 폰·PC에서 이름과 PIN을 입력하면 같은 돈으로 이어서 할 수 있어요. PIN은 암호화해서 저장합니다.</div></div>`;
   }
+  // 전적 (STATS_V1)
+  const GNAME = { gostop: '고스톱', matgo: '맞고', seotda: '섯다' };
+  const recN = (t) => (t ? t.w + t.d + t.l : 0);
+  const rateOf = (t) => (recN(t) ? Math.round((t.w / recN(t)) * 100) : 0);
+  const recText = (t, short) => (!recN(t) ? '아직 전적 없음' : short ? `${t.w}승${t.d}무${t.l}패 ${rateOf(t)}%` : `${t.w}승 ${t.d}무 ${t.l}패 · 승률 ${rateOf(t)}%`);
   function rankHTML() {
     const list = ui.ranking || [];
     if (!list.length) return '<div class="muted" style="text-align:center">아직 기록이 없어요</div>';
     const me = ui.acct && ui.acct.nickname;
-    return `<ol class="rank">${list.map((x, i) => `<li class="${x.nickname === me ? 'me' : ''}"><span class="rk">${i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1}</span><span class="rn">${esc(x.nickname)}</span><span class="rm">${won(x.balance)}</span></li>`).join('')}</ol>`;
+    return `<ol class="rank">${list.map((x, i) => `<li class="${x.nickname === me ? 'me' : ''}"><span class="rk">${i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1}</span><span class="rn">${esc(x.nickname)}<small class="rrec">${recText(x.rec, true)}</small></span><span class="rm">${won(x.balance)}</span></li>`).join('')}</ol>`;
   }
   function renderLanding() {
     if (!ui.acct) return renderLogin();
@@ -621,8 +626,9 @@
     $app.innerHTML = `<div class="pad" style="position:relative">${muteBtn('snd-float')}
       <h1 class="title brand">🎴 혁게임<span class="logo-sub">HYUK GAME</span></h1>
       <p class="subtitle">고스톱 · 맞고 · 섯다 — 단톡방 친구들과 실시간으로!</p>
-      <div class="panel acct"><div class="acct-row"><span>👤 <b>${esc(ui.acct.nickname)}</b></span><span><button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="pinForm">🔒 ${ui.acct.hasPin ? 'PIN 변경' : 'PIN 설정'}</button> <button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="renameForm">✏️ 이름 바꾸기</button> <button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="logout">로그아웃</button></span></div>
+      <div class="panel acct"><div class="acct-name">👤 <b>${esc(ui.acct.nickname)}</b></div><div class="acct-btns"><button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="pinForm">🔒 ${ui.acct.hasPin ? 'PIN 변경' : 'PIN 설정'}</button> <button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="renameForm">✏️ 이름 바꾸기</button> <button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="logout">로그아웃</button></div>
         <div class="mymoney" style="display:flex;align-items:center;justify-content:space-between;gap:6px"><span>💰 내 돈 <b>${won(ui.acct.balance)}</b></span><button class="lnk-red" data-act="delForm">계정 삭제</button></div>
+        <button class="rec-line" data-act="recInfo">📊 전적 ${recText(ui.acct.stats && ui.acct.stats.total)} <span class="muted">›</span></button>
         ${ui.acct.hasPin ? '' : '<div class="muted" style="font-size:12px;margin-top:4px">다른 기기에서도 쓰려면 <a href="#" data-act="pinForm" class="lnk">PIN 설정</a></div>'}</div>
       ${pinPanel()}
       ${joinBox}
@@ -676,7 +682,7 @@
 
   function playersList() {
     const r = S.room;
-    return `<ul class="plist">${r.players.map((p) => `<li class="${p.ai ? 'ai' : ''}" data-pid="${esc(p.id)}"><div>${esc(p.name)}${p.ai ? `<span class="tag ai">AI·${p.level === 'easy' ? '쉬움' : '보통'}</span>` : ''}${p.id === r.hostId ? '<span class="tag">방장</span>' : ''}${p.id === S.me ? '<span class="tag" style="background:#4ae0ff">나</span>' : ''}${!p.connected ? '<span class="tag off">연결끊김</span>' : ''}${isHost() && p.id !== S.me && r.status !== 'playing' ? `<button class="btn-ghost" style="padding:4px 8px;font-size:11px;margin-left:6px" data-kick="${esc(p.id)}" ${p.ai ? 'data-ai="1"' : ''}>${p.ai ? '빼기' : '내보내기'}</button>` : ''}</div><div class="chip ${p.chips < 0 ? 'neg' : ''}">${won(p.chips)}</div></li>`).join('')}</ul>`;
+    return `<ul class="plist">${r.players.map((p) => `<li class="${p.ai ? 'ai' : ''}" data-pid="${esc(p.id)}"><div>${esc(p.name)}${p.ai ? `<span class="tag ai">AI·${p.level === 'easy' ? '쉬움' : '보통'}</span>` : ''}${p.id === r.hostId ? '<span class="tag">방장</span>' : ''}${p.id === S.me ? '<span class="tag" style="background:#4ae0ff">나</span>' : ''}${!p.connected ? '<span class="tag off">연결끊김</span>' : ''}${isHost() && p.id !== S.me && r.status !== 'playing' ? `<button class="btn-ghost" style="padding:4px 8px;font-size:11px;margin-left:6px" data-kick="${esc(p.id)}" ${p.ai ? 'data-ai="1"' : ''}>${p.ai ? '빼기' : '내보내기'}</button>` : ''}${p.rec ? `<small class="prec" title="전체 ${recText(p.rec.t)}">${GNAME[r.game]} ${recText(p.rec.g, true)}</small>` : ''}</div><div class="chip ${p.chips < 0 ? 'neg' : ''}">${won(p.chips)}</div></li>`).join('')}</ul>`;
   }
 
   const hostPrivChk = () => (isHost() ? `<label class="chk" style="justify-content:center"><input type="checkbox" data-priv="host" ${S.room.private ? 'checked' : ''}> 🔒 비공개 방 (진행 중인 방 목록에 안 보이게)</label>` : '');
@@ -817,6 +823,8 @@
     const on = !!(me && me.leaveReserved);
     return `<button class="btn-ghost exit-btn ${on ? 'on' : ''}" data-act="exitRoom">${on ? '나가기<br>예약됨' : '나가기'}</button>`;
   }
+  // 긴 이름(최대 12자)은 글자를 조금 작게 해서 자리 안에 전부 보이게 (말줄임 대신)
+  const nmCls = (n) => { const L = [...String(n || '')].length; return L >= 11 ? 'nm-xl' : L >= 9 ? 'nm-l' : L >= 7 ? 'nm-m' : ''; };
   const resvTag = (id) => { const p = S && S.room.players.find((x) => x.id === id); return p && p.leaveReserved ? '<span class="resv-tag">나가기 예약</span>' : ''; };
 
   function renderGame() {
@@ -831,7 +839,7 @@
     const chipsOf = (id) => { const p = S.room.players.find((x) => x.id === id); return p ? p.chips : 0; };
     const others = g.seats.map((s, i) => ({ s, i })).filter((x) => x.i !== me);
     const seatBox = ({ s, i }) => `<div data-seat="${i}" data-pid="${esc(s.id)}" class="sd-seat ${g.turn === i ? 'turn' : ''} ${s.folded ? 'fold' : ''}">${timerBar(s.id)}
-        <div style="font-weight:800">${esc(s.name)}${s.folded ? ' (다이)' : ''}${resvTag(s.id)}</div>
+        <div style="font-weight:800" class="${nmCls(s.name + (s.folded ? '(다이)' : ''))}">${esc(s.name)}${s.folded ? ' (다이)' : ''}${resvTag(s.id)}</div>
         <div class="muted">${wonC(chipsOf(s.id) - (g.result ? 0 : s.contrib))} · 베팅 ${wonC(s.contrib)}</div>
         <div class="cards">${s.cards.map((c) => sd(c, 'sm' + (c != null ? '' : ''))).join('')}</div>
         <div class="hn">${s.handName ? esc(s.handName) : g.turn === i ? '고민 중…' : ''}</div></div>`;
@@ -873,7 +881,7 @@
     const chipsOf = (id) => { const p = S.room.players.find((x) => x.id === id); return p ? p.chips : 0; };
     const opps = g.players.map((p, i) => ({ p, i })).filter((x) => x.i !== me);
     const oppHTML = opps.map(({ p, i }) => `<div data-seat="${i}" data-pid="${esc(p.id)}" class="opp ${g.turn === i ? 'turn' : ''}">${timerBar(p.id)}
-      <div class="nm"><span>${esc(p.name)}${resvTag(p.id)}</span><span style="color:#ffcf4a">${p.score}점</span></div>
+      <div class="nm"><span class="${nmCls(p.name)}">${esc(p.name)}${resvTag(p.id)}</span><span style="color:#ffcf4a">${p.score}점</span></div>
       <div class="meta">🂠 ${p.handCount}장 · ${wonC(chipsOf(p.id))}${p.go ? ` · <b style="color:#ff8a80">${p.go}고</b>` : ''}${p.shakes ? ` · 흔듦${p.shakes}` : ''}${p.ppeok ? ` · 뻑${p.ppeok}` : ''}</div>
       <div class="caps">${groupCaptured(p.captured)}</div><div class="bdg">${badgesHTML(p.captured)}</div></div>`).join('');
     // 힌트: 공개 정보(먹은 패·바닥) + 내 손패만 사용
@@ -1186,6 +1194,16 @@
         <p class="muted" style="font-size:12px">돈·순위·PIN·이 기기 자동 입장은 그대로예요. 이름은 10분에 한 번 바꿀 수 있고, 옛 이름은 다른 사람이 쓸 수 있게 돼요.</p>
         <div class="btns"><button class="btn-primary" data-act="saveRename">바꾸기</button><button class="btn-ghost" data-act="close">취소</button></div></div></div>`;
     }
+    // 전적 자세히 (게임별)
+    if (m.type === 'rec' && ui.acct) {
+      const st = ui.acct.stats || {};
+      const row = (label, t) => `<tr><td>${label}</td><td>${t ? t.w : 0}</td><td>${t ? t.d : 0}</td><td>${t ? t.l : 0}</td><td>${recN(t) ? rateOf(t) + '%' : '-'}</td></tr>`;
+      return `<div class="modal-bg"><div class="modal"><h2>📊 ${esc(ui.acct.nickname)} 전적</h2>
+        <table class="board rec-table"><tr><th>게임</th><th>승</th><th>무</th><th>패</th><th>승률</th></tr>
+        ${['gostop', 'matgo', 'seotda'].map((g) => row(GNAME[g], st[g])).join('')}${row('<b>전체</b>', st.total)}</table>
+        <p class="muted" style="font-size:12px">한 판 끝날 때마다 기록돼요. 나가리·섯다 동점(판돈 나눔)은 무, AI는 기록 안 해요. 승률 = 승 ÷ 전체 판.</p>
+        <div class="btns"><button class="btn-ghost" data-act="close">닫기</button></div></div></div>`;
+    }
     // 계정 삭제 (DELETE_V1): 지금 이름을 똑같이 입력 + PIN 있는 계정은 지금 PIN
     if (m.type === 'delAcct' && ui.acct) {
       return `<div class="modal-bg"><div class="modal del-form acct-form"><h2 style="color:#ff8a8a">⚠️ 계정 삭제</h2>
@@ -1383,6 +1401,7 @@
       case 'havePin': ev.preventDefault(); ui.loginName = (document.getElementById('nick') || {}).value || ''; ui.needPin = true; ui.loginMsg = null; render(); { const f = document.getElementById('pin'); if (f) f.focus(); } return;
       case 'pinForm': ev.preventDefault(); ui.pinForm = true; render(); { const f = document.getElementById(ui.acct && ui.acct.hasPin ? 'pin-cur' : 'pin-new'); if (f) f.focus(); } return;
       case 'cancelPin': ui.pinForm = false; return render();
+      case 'recInfo': ui.modal = { type: 'rec' }; return render();
       case 'renameForm': ev.preventDefault(); ui.modal = { type: 'rename' }; ui.pinForm = false; render(); { const f = document.getElementById('rn-new'); if (f) { f.focus(); f.select(); } } return;
       case 'saveRename': {
         const m = ui.modal; if (!m) return;

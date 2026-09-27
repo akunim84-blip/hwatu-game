@@ -64,12 +64,19 @@ function createRoom(game, perPoint, bonus, priv) {
   return room;
 }
 
+// 자리에 보여 줄 전적: 전체 + 이 방 게임 (계정만)
+function recOf(p, game) {
+  const a = p.acct && accounts.cache.get(p.acct);
+  if (!a) return undefined;
+  const st = accounts.statsOf(a);
+  return { t: st.total, g: st[game] };
+}
 function publicRoom(room) {
   return {
     code: room.code, game: room.game, gameName: GAMES[room.game].name, perPoint: room.perPoint, bonus: room.bonus,
     min: GAMES[room.game].min, max: GAMES[room.game].max,
     hostId: room.hostId, status: room.status, actSeq: room.actSeq, round: room.round, mult: room.mult,
-    players: room.players.map((p) => ({ id: p.id, name: p.name, chips: p.chips, net: p.net || 0, refilled: p.refilled || 0, member: !!p.acct, connected: p.connected, leaveReserved: !!p.leaveReserved, wins: p.wins, ai: !!p.ai, level: p.ai ? p.level : undefined, playing: !!(room.engine && room.engine.seatOf(p.id) >= 0) })),
+    players: room.players.map((p) => ({ id: p.id, name: p.name, chips: p.chips, net: p.net || 0, refilled: p.refilled || 0, member: !!p.acct, connected: p.connected, leaveReserved: !!p.leaveReserved, rec: recOf(p, room.game), wins: p.wins, ai: !!p.ai, level: p.ai ? p.level : undefined, playing: !!(room.engine && room.engine.seatOf(p.id) >= 0) })),
     history: room.history.slice(-10),
     startChips: START_CHIPS,
     private: !!room.private,
@@ -388,11 +395,11 @@ function addAI(room, level) {
 const humans = (room) => room.players.filter((x) => !x.ai);
 
 // 판 정산 (가상 머니): 계정은 저장소에 바로 기록, 0원 이하 → 파산 300,000원 (AI는 조용히 1,000,000원 충전)
-function settlePlayer(room, p, d) {
+function settlePlayer(room, p, d, outcome) {
   p.net = (p.net || 0) + d;
   if (p.acct && accounts.cache.has(p.acct)) {
     const a = accounts.cache.get(p.acct);
-    const r = accounts.settleCached(a, d);
+    const r = accounts.settleCached(a, d, outcome); // 잔액 + 전적 한 번에 저장 (AI·손님은 기록 안 함)
     p.chips = r.balance;
     room.saving = r.saved.catch((e) => console.error('정산 저장 실패', p.acct, e.message));
     if (r.bankrupt) notifyBankrupt(p);
@@ -417,15 +424,26 @@ function pushRanking() {
   if (rankTimer.unref) rankTimer.unref();
 }
 
+// 전적: 이긴 사람 승, 나머지 패. 나가리·섯다 동점(판돈 나눔)은 무 (동점이면 이긴 사람들만 무, 나머지는 패)
+// 판에 앉았던 사람 전부 (연결 끊김·나가기 예약 포함 — 자리 주인 계정에 기록). AI·손님은 settlePlayer에서 기록 안 함
+function roundOutcomes(e) {
+  const r = e.result;
+  const seats = (e.kind === 'seotda' ? e.seats : e.players).map((x) => x.id);
+  const tie = !r.nagari && r.winners.length > 1;
+  return [...new Set(seats.concat(Object.keys(r.chipDelta || {})))].map((pid) => ({
+    pid, delta: (r.chipDelta && r.chipDelta[pid]) || 0,
+    res: r.nagari ? 'd' : r.winners.includes(pid) ? (tie ? 'd' : 'w') : 'l',
+  }));
+}
 function afterAction(room) {
   room.actSeq++;
   const e = room.engine;
   if (e && e.kind === 'seotda' && e.redeals !== room.seenRedeals) { room.seenRedeals = e.redeals; room.roundStartSeq = room.actSeq; } // 재경기: 다시 패 돌림
   if (e && e.over && room.status === 'playing') {
     const r = e.result;
-    for (const [pid, d] of Object.entries(r.chipDelta)) {
-      const p = room.players.find((x) => x.id === pid);
-      if (p) settlePlayer(room, p, d);
+    for (const o of roundOutcomes(e)) {
+      const p = room.players.find((x) => x.id === o.pid);
+      if (p) settlePlayer(room, p, o.delta, { game: room.game, res: o.res });
     }
     pushRanking();
     for (const w of r.winners) { const p = room.players.find((x) => x.id === w); if (p) p.wins++; }
@@ -806,4 +824,4 @@ if (require.main === module) {
 }
 const admin = require('./lib/admin').mountAdmin(app, { accounts, rooms, io, GAMES, broadcast, pushRanking, applyRename, dropAccountEverywhere, closeRoom, inRound });
 
-module.exports = { server, io, rooms, PORT, roomList, accounts, STAKES, settlePlayer, admin };
+module.exports = { server, io, rooms, PORT, roomList, accounts, STAKES, settlePlayer, roundOutcomes, admin };

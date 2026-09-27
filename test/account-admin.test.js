@@ -224,3 +224,64 @@ test('관리자: 목록·검색, 접속 중인 계정 삭제(방에서 빠지고
   assert.strictEqual((await req('POST', '/admin/api/account/delete', { key: '착한손님2' })).status, 401);
   [V, W, X].forEach((c) => c.s.close());
 });
+
+test('관리자 키 변경: 지금 키+새 키(8자 이상), 저장된 해시가 환경변수 키 대신, 기존 세션 모두 무효, 틀린 키 제한', async () => {
+  admin.fails.clear();
+  const envKey = process.env.ADMIN_KEY;
+  const oldCookie = (await req('POST', '/admin/api/login', { key: envKey })).setCookie.split(';')[0];
+  assert.strictEqual((await req('GET', '/admin/api/me', null, oldCookie)).json.authed, true);
+  const bad = await req('POST', '/admin/api/change-key', { current: 'wrong-key!', next: 'NewKey234567' });
+  assert.strictEqual(bad.status, 401); assert.strictEqual(bad.json.code, 'BAD_KEY');
+  assert.strictEqual((await req('POST', '/admin/api/change-key', { current: envKey, next: 'short7!' })).json.code, 'KEY_FORMAT', '8자 미만 거부');
+  assert.strictEqual((await req('POST', '/admin/api/change-key', { current: envKey, next: 'NewKey234567', next2: 'NewKey234568' })).json.code, 'MISMATCH');
+  assert.strictEqual((await req('POST', '/admin/api/change-key', { current: envKey, next: envKey })).json.code, 'SAME');
+  assert.strictEqual((await req('POST', '/admin/api/change-key', { current: envKey, next: 'NewKey234567' }, null, { 'x-admin-req': '' })).status, 403, 'CSRF 헤더 필요');
+  const ok = await req('POST', '/admin/api/change-key', { current: envKey, next: 'NewKey234567' }); // 스크립트처럼 세션 없이
+  assert.strictEqual(ok.status, 200); assert.strictEqual(ok.json.version, 1);
+  // 기존 세션 무효, 옛(환경변수) 키로 로그인 불가, 새 키로 가능
+  assert.strictEqual((await req('GET', '/admin/api/accounts', null, oldCookie)).status, 401, '키를 바꾸면 기존 세션 무효');
+  assert.strictEqual((await req('POST', '/admin/api/login', { key: envKey })).status, 401, '저장된 키가 환경변수 키 대신');
+  const nc = (await req('POST', '/admin/api/login', { key: 'NewKey234567' })).setCookie.split(';')[0];
+  assert.strictEqual((await req('GET', '/admin/api/accounts', null, nc)).status, 200);
+  const changer = ok.setCookie.split(';')[0];
+  assert.strictEqual((await req('GET', '/admin/api/me', null, changer)).json.authed, true, '바꾼 사람은 새 세션');
+  // 저장: scrypt 해시만 (평문 없음), 재시작해도 유지
+  await accounts.idle();
+  const raw = fs.readFileSync(process.env.ACCOUNTS_FILE, 'utf8');
+  assert.ok(!raw.includes('NewKey234567'), '평문 저장 금지');
+  const rec = JSON.parse(JSON.parse(raw).settings.admin_key);
+  assert.ok(/^scrypt\$/.test(rec.hash)); assert.strictEqual(rec.ver, 1);
+  // 두 번째 변경 → 버전 2, 방금 세션도 무효
+  const ok2 = await req('POST', '/admin/api/change-key', { current: 'NewKey234567', next: 'Another-Key-99', next2: 'Another-Key-99' }, nc);
+  assert.strictEqual(ok2.json.version, 2);
+  assert.strictEqual((await req('GET', '/admin/api/me', null, nc)).json.authed, false);
+  // 환경변수가 없어도 저장된 키로 켜져 있음
+  delete process.env.ADMIN_KEY;
+  assert.ok(!(await req('GET', '/admin')).text.includes('꺼져 있어요'));
+  assert.strictEqual((await req('POST', '/admin/api/login', { key: 'Another-Key-99' })).status, 200);
+  process.env.ADMIN_KEY = envKey;
+  // 틀린 지금 키 5번 → 차단 (로그인과 같은 제한)
+  admin.fails.clear();
+  for (let i = 0; i < 5; i++) assert.strictEqual((await req('POST', '/admin/api/change-key', { current: 'nope' + i, next: 'Whatever-123' })).status, 401);
+  assert.strictEqual((await req('POST', '/admin/api/change-key', { current: 'Another-Key-99', next: 'Whatever-123' })).status, 429);
+  admin.fails.clear();
+});
+
+test('설정 저장 (pg-mem): hwatu_settings 테이블 자동 생성·덮어쓰기, 옛 DB에도 마이그레이션', async () => {
+  let newDb;
+  try { ({ newDb } = require('pg-mem')); } catch (e) { return; }
+  const db = newDb();
+  db.public.none(`CREATE TABLE hwatu_accounts (nick_key TEXT PRIMARY KEY, nickname TEXT UNIQUE NOT NULL, pin_hash TEXT NOT NULL, balance BIGINT NOT NULL DEFAULT 1000000, bankrupt_count INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now());
+    CREATE TABLE hwatu_tokens (token_hash TEXT PRIMARY KEY, nick_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now());`);
+  const { Pool } = db.adapters.createPg();
+  const A = new Accounts({ databaseUrl: 'postgres://u:p@db.example.com/x', Pool });
+  await A.ready;
+  assert.strictEqual(A.kind, 'postgres');
+  assert.strictEqual(await A.getSetting('admin_key'), null);
+  await A.setSetting('admin_key', '{"hash":"scrypt$a$b","ver":1}');
+  await A.setSetting('admin_key', '{"hash":"scrypt$c$d","ver":2}');
+  const B = new Accounts({ databaseUrl: 'postgres://u:p@db.example.com/x', Pool });
+  await B.ready;
+  assert.strictEqual(JSON.parse(await B.getSetting('admin_key')).ver, 2);
+  assert.strictEqual(db.public.many('SELECT * FROM hwatu_settings').length, 1);
+});

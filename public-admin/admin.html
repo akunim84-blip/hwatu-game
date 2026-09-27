@@ -22,6 +22,9 @@ button{font:inherit;cursor:pointer}.btn{padding:7px 11px;border-radius:9px;borde
 </style></head><body>
 <div id="app"></div><div id="modal"><div class="box" id="mbox"></div></div><div id="toast"></div>
 <script>
+function recLine(st){st=st||{};const f=(t)=>{t=t||{w:0,d:0,l:0};const n=t.w+t.d+t.l;return `${t.w}승 ${t.d}무 ${t.l}패${n?' · '+Math.round(t.w/n*100)+'%':''}`;};
+  return `📊 전체 ${f(st.total)} | 고스톱 ${f(st.gostop)} | 맞고 ${f(st.matgo)} | 섯다 ${f(st.seotda)}`;}
+
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const won = (n) => Number(n || 0).toLocaleString('ko-KR') + '원';
@@ -41,9 +44,10 @@ function showLogin(msg) {
   $('#lf').onsubmit = async (e) => { e.preventDefault(); const r = await api('/login', { key: $('#key').value }); if (!r.ok) return ($('#lerr').textContent = r.error); main(); };
 }
 function shell() {
-  $('#app').innerHTML = `<header><h1>🎴 혁게임 관리자</h1><button class="btn" id="logout">로그아웃</button></header>
+  $('#app').innerHTML = `<header><h1>🎴 혁게임 관리자</h1><button class="btn" id="chkey">🔑 비밀번호</button><button class="btn" id="logout">로그아웃</button></header>
     <div class="tabs"><button class="tab ${st.tab === 'acc' ? 'on' : ''}" data-tab="acc">👤 계정</button><button class="tab ${st.tab === 'room' ? 'on' : ''}" data-tab="room">🎲 방</button></div><main id="body"></main>`;
   $('#logout').onclick = async () => { await api('/logout', {}); showLogin(); };
+  $('#chkey').onclick = changeKey;
   document.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { st.tab = b.dataset.tab; main(); });
 }
 async function loadAcc() {
@@ -58,6 +62,7 @@ function drawAcc() {
     ${st.list.map((a) => `<div class="card"><div class="row"><span class="name">${esc(a.nickname)}</span>
       ${a.online ? '<span class="tag on">접속 중</span>' : ''}${a.room ? `<span class="tag">방 ${esc(a.room)}</span>` : ''}<span class="tag">${a.hasPin ? '🔒 PIN 있음' : 'PIN 없음'}</span></div>
       <div class="row" style="margin-top:4px"><span class="money">${won(a.balance)}</span><span class="muted">파산 ${a.bankruptCount}회 · 가입 ${when(a.createdAt)} · 최근 ${when(a.lastSeen)}</span></div>
+      <div class="muted" style="font-size:12px;margin-top:2px">${recLine(a.stats)}</div>
       <div class="acts"><button class="btn" data-a="pin" data-k="${esc(a.key)}">🔑 PIN 재설정</button><button class="btn" data-a="bal" data-k="${esc(a.key)}">💰 잔액</button><button class="btn" data-a="ren" data-k="${esc(a.key)}">✏️ 이름</button><button class="btn red" data-a="del" data-k="${esc(a.key)}">🗑 삭제</button></div></div>`).join('') || '<p class="muted">계정이 없어요</p>'}`;
   const q = $('#q'); if (had) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
   q.oninput = () => { st.q = q.value; clearTimeout(drawAcc.t); drawAcc.t = setTimeout(loadAcc, 250); };
@@ -78,6 +83,23 @@ function act(a, acc) {
     if (a === 'pin') { if (v && !/^\d{4}$/.test(v)) return ($('#merr').textContent = 'PIN은 숫자 4자리'); const r = await api('/account/pin', { key: acc.key, pin: v || undefined }); if (!r.ok) return ($('#merr').textContent = r.error); modal(`<h3>🔑 새 PIN</h3><p>'${esc(acc.nickname)}'의 새 PIN은</p><div style="font-size:34px;letter-spacing:10px;text-align:center;font-weight:800">${esc(r.pin)}</div><p class="muted">본인에게 알려 주세요 (다시 보여 줄 수 없어요).</p><div class="row" style="justify-content:flex-end"><button class="btn pri" id="mno">확인</button></div>`); $('#mno').onclick = () => { modal(''); loadAcc(); }; }
     if (a === 'bal') { const m = /^([+-])\s*([\d,]+)$/.exec(v); const n = Number(v.replace(/[,\s원]/g, '')); const r = await run(() => api('/account/balance', m ? { key: acc.key, delta: (m[1] === '-' ? -1 : 1) * Number(m[2].replace(/,/g, '')) } : { key: acc.key, balance: n })); if (r) toast(`잔액 ${won(r.account.balance)}`); }
     if (a === 'ren') { const r = await run(() => api('/account/rename', { key: acc.key, nickname: v })); if (r) toast(`이름: ${r.account.nickname}`); }
+  };
+}
+// 마스터 비밀번호(관리자 키) 변경: 지금 키 + 새 키 두 번 (8자 이상). 바꾸면 다른 기기의 관리자 로그인은 모두 풀림
+function changeKey() {
+  modal(`<h3>🔑 마스터 비밀번호 변경</h3><p>바꾸면 다른 기기에서 로그인한 관리자 세션은 모두 풀려요. 이 기기는 그대로 로그인돼요.</p>
+    <input id="ck0" type="password" autocomplete="current-password" placeholder="지금 비밀번호">
+    <input id="ck1" type="password" autocomplete="new-password" placeholder="새 비밀번호 (8자 이상)" style="margin-top:8px">
+    <input id="ck2" type="password" autocomplete="new-password" placeholder="새 비밀번호 한 번 더" style="margin-top:8px">
+    <div class="err" id="merr"></div><div class="row" style="justify-content:flex-end"><button class="btn" id="mno">취소</button><button class="btn pri" id="mok">변경</button></div>`);
+  $('#mno').onclick = () => modal('');
+  $('#mok').onclick = async () => {
+    const cur = $('#ck0').value, n1 = $('#ck1').value.trim(), n2 = $('#ck2').value.trim();
+    if (n1.length < 8) return ($('#merr').textContent = '새 비밀번호는 8자 이상');
+    if (n1 !== n2) return ($('#merr').textContent = '새 비밀번호 두 번이 서로 달라요');
+    const r = await api('/change-key', { current: cur, next: n1, next2: n2 });
+    if (!r.ok) return ($('#merr').textContent = r.error);
+    modal(''); toast('🔑 마스터 비밀번호를 바꿨어요');
   };
 }
 async function loadRooms() { const r = await api('/rooms'); if (!r.ok) return toast(r.error); st.rooms = r.list; drawRooms(); }

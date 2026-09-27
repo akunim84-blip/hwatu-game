@@ -377,7 +377,6 @@ a.lnk{color:#ffcf4a;text-decoration:underline}
 .acct-form .pin-in{letter-spacing:6px}
 .acct-form .login-msg{margin-top:6px}
 .acct-form .btns{margin-top:10px}
-.acct .acct-row>span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:48%}
 /* 나가기 / 나가기 예약 (EXIT_V1) */
 .hdr .exit-btn{color:#ffd0c8;border-color:rgba(255,120,100,.5)}
 .hdr .exit-btn.on{background:#b8322a;color:#fff;border-color:#ff8a7a;font-weight:800}
@@ -415,3 +414,19 @@ a.lnk{color:#ffcf4a;text-decoration:underline}
 @keyframes bubin{from{transform:translateY(6px) scale(.9);opacity:0}to{transform:none;opacity:1}}
 .hdr .exit-btn.on{font-size:11px;line-height:1.1;padding:3px 7px}
 @media (max-width:400px){.hdr{gap:4px;padding-left:8px;padding-right:8px}.hdr button{padding:6px 7px}}
+.acct .acct-name{font-size:16px;line-height:1.3;word-break:break-all;overflow-wrap:anywhere}
+.acct .acct-name b{font-weight:800}
+.acct .acct-btns{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0 4px}
+.acct .acct-btns button{padding:4px 9px!important;font-size:12px!important}
+/* 긴 이름 (최대 12자): 말줄임 대신 글자 크기를 줄임, 그래도 넘치면 두 줄 */
+.opp .nm span.nm-m,.sd-seat>div.nm-m{font-size:12.5px}
+.opp .nm span.nm-l,.sd-seat>div.nm-l{font-size:11.5px}
+.opp .nm span.nm-xl,.sd-seat>div.nm-xl{font-size:10.5px;letter-spacing:-.02em}
+.opp .nm span[class^="nm-"],.sd-seat>div[class^="nm-"]{white-space:normal;overflow:visible;word-break:break-all;line-height:1.15}
+.mine .nm span:first-child,.sd-me .muted{white-space:normal;word-break:break-all}
+/* 전적 (STATS_V1) */
+.acct .rec-line{display:block;width:100%;text-align:left;background:none;border:0;color:#e8f4ea;font-size:13px;padding:4px 0 0;cursor:pointer}
+ol.rank .rn .rrec,.plist .prec{display:block;font-size:11px;font-weight:400;color:#9bb5a4;line-height:1.2}
+.plist .prec{order:2}
+.rec-table{width:100%;text-align:center}
+.rec-table td:first-child,.rec-table th:first-child{text-align:left}
