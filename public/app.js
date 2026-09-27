@@ -28,6 +28,11 @@
   const socket = io({ transports: ['websocket', 'polling'] });
 
   // ---------- 유틸 ----------
+  // 다른 게임으로 가기 (🎮 메뉴, LINKS_V1) — 주소는 여기 한 곳에서만 바꾸면 됨
+  const GAME_LINKS = [
+    { icon: '🏠', name: '게임 로비', url: 'https://game.itf84.synology.me' },
+    { icon: '⚔️', name: '던전 앤 던전', url: 'https://ofo.itf84.synology.me' },
+  ];
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmt = (n) => (n > 0 ? '+' : '') + Number(n).toLocaleString('ko-KR');
   const num = (n) => Number(n).toLocaleString('ko-KR');
@@ -583,7 +588,7 @@
     const invHTML = inv ? (inv.missing
       ? `<div class="panel invite miss">😢 초대받은 방 <b>${esc(inv.code)}</b>을(를) 찾을 수 없어요. 방이 끝났을 수 있어요.<br><small>이름을 쓰고 들어가서 다른 방에 참여하거나 새로 만들 수 있어요.</small></div>`
       : `<div class="panel invite"><div class="inv-t">🎉 초대받았어요!</div><div class="inv-room">${inv.host ? `<b>${esc(inv.host)}</b>님의 ` : ''}<span class="inv-g">${esc(inv.gameName || '')}</span> 방 <span class="inv-code">${esc(inv.code)}</span></div>${inv.status ? `<div class="muted">${inv.status === 'playing' ? '게임 중 — 들어가면 관전하다가 다음 판부터 참여' : '대기 중 — 들어가면 바로 참여'}</div>` : ''}<div class="inv-hint">이름만 쓰면 바로 입장해요 (방 코드 입력 필요 없음)</div></div>`) : '';
-    $app.innerHTML = `<div class="pad login" style="position:relative">${muteBtn('snd-float')}
+    $app.innerHTML = `<div class="pad login" style="position:relative">${muteBtn('snd-float')}${gamesBtn('snd snd-float games-float')}
       <h1 class="title brand">🎴 혁게임<span class="logo-sub">HYUK GAME</span></h1>
       <p class="subtitle">고스톱 · 맞고 · 섯다 — 단톡방 친구들과 실시간으로!</p>
       ${invHTML}
@@ -623,7 +628,7 @@
     const joinBox = urlRoom
       ? `<div class="panel"><h3>🎉 초대받은 방: <span style="color:#ffcf4a">${esc(urlRoom)}</span></h3><button class="btn-primary" style="width:100%" data-act="joinUrl">이 방에 입장하기</button></div>`
       : '';
-    $app.innerHTML = `<div class="pad" style="position:relative">${muteBtn('snd-float')}
+    $app.innerHTML = `<div class="pad" style="position:relative">${muteBtn('snd-float')}${gamesBtn('snd snd-float games-float')}
       <h1 class="title brand">🎴 혁게임<span class="logo-sub">HYUK GAME</span></h1>
       <p class="subtitle">고스톱 · 맞고 · 섯다 — 단톡방 친구들과 실시간으로!</p>
       <div class="panel acct"><div class="acct-name">👤 <b>${esc(ui.acct.nickname)}</b></div><div class="acct-btns"><button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="pinForm">🔒 ${ui.acct.hasPin ? 'PIN 변경' : 'PIN 설정'}</button> <button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="renameForm">✏️ 이름 바꾸기</button> <button class="btn-ghost" style="padding:4px 10px;font-size:12px" data-act="logout">로그아웃</button></div>
@@ -748,6 +753,9 @@
   const QUICK = ['빨리 치세요~', '잘 쳤다!', '아쉽다 ㅠㅠ', '한 판 더?', '나이스!', '감사합니다', '👍', '😂', '😭', '🔥', '👏'];
   ui.chat = []; ui.unread = 0;
   const chatRoot = document.createElement('div'); chatRoot.id = 'chat-root'; document.body.appendChild(chatRoot);
+  function gamesBtn(cls) { return `<button class="btn-ghost games-btn ${cls || ''}" data-act="games" aria-label="다른 게임" title="다른 게임">🎮</button>`; }
+  // 판에 앉아서 진행 중이면 이동 전에 확인
+  const inLiveRound = () => !!(S && S.room && S.room.status === 'playing' && S.game && !S.game.result && S.game.mySeat >= 0);
   function chatBtn() { return `<button class="btn-ghost chat-btn" data-act="chat">💬${ui.unread ? `<span class="badge">${ui.unread > 9 ? '9+' : ui.unread}</span>` : ''}</button>`; }
   function chatLine(m) {
     if (m.sys) return `<div class="cl sys">${esc(m.text)}</div>`;
@@ -812,7 +820,7 @@
     let extra = '';
     if (g && g.kind !== 'seotda' && g.mult > 1) extra = ` · x${g.mult}`;
     const nsp = (r.spectators || []).length;
-    return `<div class="hdr"><div class="t">🎴 ${esc(r.gameName)} · ${esc(r.code)}${r.round ? ` · ${r.round}판` : ''}${extra}${nsp ? ` · 👀${nsp}` : ''}</div>${muteBtn()}<button class="btn-ghost" data-act="rules" aria-label="규칙">📖</button><button class="btn-ghost" data-act="board" aria-label="점수판">🏆</button>${chatBtn()}${exitBtn()}</div>`;
+    return `<div class="hdr">${gamesBtn('games-hdr')}<div class="t">${esc(r.gameName)} · ${esc(r.code)}${r.round ? ` · ${r.round}판` : ''}${extra}${nsp ? ` · 👀${nsp}` : ''}</div>${muteBtn()}<button class="btn-ghost" data-act="rules" aria-label="규칙">📖</button><button class="btn-ghost" data-act="board" aria-label="점수판">🏆</button>${chatBtn()}${exitBtn()}</div>`;
   }
   // 나가기 (EXIT_V1, 한게임식 나가기 예약): 판 중이면 예약/취소, 판이 아니면 바로 나감
   const myRoomP = () => S && S.room.players.find((p) => p.id === S.me);
@@ -1194,6 +1202,18 @@
         <p class="muted" style="font-size:12px">돈·순위·PIN·이 기기 자동 입장은 그대로예요. 이름은 10분에 한 번 바꿀 수 있고, 옛 이름은 다른 사람이 쓸 수 있게 돼요.</p>
         <div class="btns"><button class="btn-primary" data-act="saveRename">바꾸기</button><button class="btn-ghost" data-act="close">취소</button></div></div></div>`;
     }
+    // 🎮 다른 게임 메뉴 / 판 중 이동 확인
+    if (m.type === 'games') {
+      return `<div class="modal-bg"><div class="modal games-menu"><h2>🎮 다른 게임</h2>
+        <div class="games-list">${GAME_LINKS.map((l, i) => `<button class="btn-primary" data-act="goGame" data-gi="${i}">${l.icon} ${esc(l.name)}</button>`).join('')}</div>
+        <div class="btns"><button class="btn-ghost" data-act="close">닫기</button></div></div></div>`;
+    }
+    if (m.type === 'gamesConfirm') {
+      const l = GAME_LINKS[m.gi] || GAME_LINKS[0];
+      return `<div class="modal-bg"><div class="modal games-confirm"><h2>${l.icon} ${esc(l.name)}</h2>
+        <p style="text-align:center">판이 진행 중이에요. 나가면 AI가 대신 칩니다. 이동할까요?</p>
+        <div class="btns"><button class="btn-ghost" data-act="games">취소</button><button class="btn-primary" data-act="goGameNow" data-gi="${m.gi}">이동</button></div></div></div>`;
+    }
     // 전적 자세히 (게임별)
     if (m.type === 'rec' && ui.acct) {
       const st = ui.acct.stats || {};
@@ -1402,6 +1422,12 @@
       case 'pinForm': ev.preventDefault(); ui.pinForm = true; render(); { const f = document.getElementById(ui.acct && ui.acct.hasPin ? 'pin-cur' : 'pin-new'); if (f) f.focus(); } return;
       case 'cancelPin': ui.pinForm = false; return render();
       case 'recInfo': ui.modal = { type: 'rec' }; return render();
+      case 'games': ui.modal = { type: 'games' }; return render();
+      case 'goGame': {
+        const gi = Number(d.gi) || 0;
+        if (inLiveRound()) { ui.modal = { type: 'gamesConfirm', gi }; return render(); }
+      } // fallthrough
+      case 'goGameNow': { const l = GAME_LINKS[Number(d.gi) || 0]; ui.modal = null; window.location.href = l.url; return; }
       case 'renameForm': ev.preventDefault(); ui.modal = { type: 'rename' }; ui.pinForm = false; render(); { const f = document.getElementById('rn-new'); if (f) { f.focus(); f.select(); } } return;
       case 'saveRename': {
         const m = ui.modal; if (!m) return;
