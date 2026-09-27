@@ -49,5 +49,11 @@
     if (c.type === 'ssangpi') return '쌍피';
     return '피';
   }
-  return { MONTH_NAMES, HWATU, SEOTDA, typeLabel };
+  // 국진 (9월 열끗, 술잔): 기본은 쌍피(피 2장, 열끗 아님). 먹은 사람이 열끗으로 쓰겠다고 고르면 열끗 (맞고/고스톱)
+  const GUKJIN = 32;
+  HWATU[GUKJIN].gukjin = true;
+  const GUKJIN_PI = Object.assign({}, HWATU[GUKJIN], { type: 'ssangpi', piValue: 2 });
+  // 점수 계산용 카드 속성 (gukYeol: 국진을 열끗으로 쓰기로 했는지)
+  const effCard = (id, gukYeol) => (id === GUKJIN && !gukYeol ? GUKJIN_PI : HWATU[id]);
+  return { MONTH_NAMES, HWATU, SEOTDA, typeLabel, GUKJIN, effCard };
 });

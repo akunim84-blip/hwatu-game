@@ -1,6 +1,6 @@
-/* 친구끼리 화투 - 클라이언트 (vanilla JS) — AI_V1: AI 상대 지원 · MATGO_V2: 셔플/한 장씩 돌리기 + 족보 힌트 · CAPTURE_V1: 먹기/피 뺏기 애니메이션 · ROOMS_V1: 진행 중인 방 목록/관전/AI 자리 넘겨받기 · WON_V1: 가상 머니(원)·계정(닉네임+PIN)·순위 · RESULT_V2: 판 끝 결과 화면(마지막 판 잠깐 보여준 뒤 크게, '확인' 전까지 유지) · MATCH_V2: 같은 달 짝 강조 · INVITE_V2: 초대 링크 바로 입장 + 이름만으로 입장(기기 기억, PIN 선택) */
+/* 친구끼리 화투 - 클라이언트 (vanilla JS) — AI_V1: AI 상대 지원 · MATGO_V2: 셔플/한 장씩 돌리기 + 족보 힌트 · CAPTURE_V1: 먹기/피 뺏기 애니메이션 · ROOMS_V1: 진행 중인 방 목록/관전/AI 자리 넘겨받기 · WON_V1: 가상 머니(원)·계정(닉네임+PIN)·순위 · RESULT_V2: 판 끝 결과 화면(마지막 판 잠깐 보여준 뒤 크게, '확인' 전까지 유지) · MATCH_V2: 같은 달 짝 강조 · INVITE_V2: 초대 링크 바로 입장 + 이름+PIN으로 입장(기기 기억) · PIN_REQUIRED_V1: 새 이름은 PIN 필수 */
 (function () {
-  const { HWATU, SEOTDA, MONTH_NAMES, typeLabel } = window.HwatuCards;
+  const { HWATU, SEOTDA, MONTH_NAMES, typeLabel, GUKJIN, effCard } = window.HwatuCards;
   const H = window.HwatuHints;
   const $app = document.getElementById('app');
   // 기기 기억 (DEVICE_V2): localStorage + 입장 정보(토큰·이름)는 1st-party 쿠키에도 복사 (한쪽이 지워져도 복구)
@@ -86,7 +86,7 @@
   (function preload() { for (let i = 0; i < 48; i++) { const im = new Image(); im.src = imgOf(i); } ['back.svg', 'bonus.svg'].forEach((f) => { const im = new Image(); im.src = '/cards/' + f; }); })();
   const hw = (id, cls, attrs, extra) => cardHTML(id == null ? null : HWATU[id], cls, attrs, id, extra);
   // 족보 진행 배지 (먹은 패 기준)
-  const badgesHTML = (captured) => H.badges(captured).map((b) => `<span class="b b-${b.key}${b.done ? ' done' : b.n === b.need - 1 ? ' near' : ''}">${b.label}</span>`).join('');
+  const badgesHTML = (captured, gukYeol) => H.badges(captured, gukYeol).map((b) => `<span class="b b-${b.key}${b.done ? ' done' : b.n === b.need - 1 ? ' near' : ''}">${b.label}</span>`).join('');
   const sd = (id, cls, attrs) => cardHTML(id == null ? null : SEOTDA[id], cls, attrs, id == null ? null : (SEOTDA[id].m - 1) * 4 + (id % 2));
 
   // ---------- 소켓 ----------
@@ -99,6 +99,11 @@
       socket.emit('auth', { token: tk }, (x) => { clearTimeout(t); res(x || {}); });
     });
   }
+  // PIN 없는 옛 계정: 들어올 때마다 PIN 설정 안내 ('나중에'는 이번 접속(탭)에서만)
+  function maybePinPrompt() {
+    let later = false; try { later = sessionStorage.getItem('hw_pin_later') === '1'; } catch (e) {}
+    if (ui.acct && !ui.acct.hasPin && !later && !ui.modal) ui.modal = { type: 'setPinNow' };
+  }
   async function autoLogin() {
     const tk = LS.get('hw_token');
     if (!tk) return;
@@ -106,7 +111,7 @@
     const r = await tryAuth(tk);
     if (LS.get('hw_token') !== tk) return; // 그 사이 다른 이름으로 입장함
     ui.authPending = false;
-    if (r.ok) { ui.acct = r.account; LS.del('hw_pend'); LS.set('hw_name', r.account.nickname); }
+    if (r.ok) { ui.acct = r.account; LS.del('hw_pend'); LS.set('hw_name', r.account.nickname); maybePinPrompt(); }
     else if (r.code === 'BAD_TOKEN') { LS.del('hw_token'); LS.del('hw_pend'); ui.acct = null; }
     else { ui.acct = null; ui.authRetry = true; }
     if (!S) render();
@@ -153,6 +158,12 @@
     render();
   }
   document.addEventListener('input', (ev) => {
+    // 입장 화면·PIN 안내 창: 다시 그려져도 입력한 값 유지
+    const id = ev.target.id;
+    if (id === 'nick' && !ui.acct) ui.loginName = ev.target.value;
+    if (id === 'pin' && !ui.acct) ui.loginPin = ev.target.value;
+    if (id === 'pin2' && !ui.acct) ui.loginPin2 = ev.target.value;
+    if (ui.modal && ui.modal.type === 'setPinNow' && (id === 'pn-new' || id === 'pn-new2')) ui.modal[id === 'pn-new' ? 'p1' : 'p2'] = ev.target.value;
     const m = ui.modal; if (!m || (m.type !== 'rename' && m.type !== 'delAcct')) return;
     if (ev.target.id === 'rn-new' || ev.target.id === 'del-name') m.val = ev.target.value;
     if (ev.target.id === 'rn-pin' || ev.target.id === 'del-pin') m.pin = ev.target.value;
@@ -174,8 +185,8 @@
     if (!prev || prev.room.code !== st.room.code) { if (!ui.chatRoom || ui.chatRoom !== st.room.code) { ui.chat = []; ui.unread = 0; ui.chatRoom = st.room.code; } }
     const snap = snapshotRects();
     S = st;
-    if (st.spectator && (!prev || !prev.spectator || prev.room.code !== st.room.code)) toast(st.spectator.waiting ? '👀 관전 중 — 다음 판부터 AI 자리에서 참여합니다' : '👀 관전 중 (자리가 모두 찼어요)', true);
-    else if (!st.spectator && prev && prev.spectator && prev.room.code === st.room.code) toast('🎉 이제 참여합니다! AI 자리를 넘겨받았어요', true);
+    if (st.spectator && (!prev || !prev.spectator || prev.room.code !== st.room.code)) toast(st.spectator.waiting ? '👀 관전 중 — 이 판이 끝나면 자동으로 참가해요' : '👀 관전 중 — 🎮 게임 참가하기를 누르면 자리가 날 때 자동 참가해요', true);
+    else if (!st.spectator && prev && prev.spectator && prev.room.code === st.room.code) toast('🎮 자리에 앉았어요! 이번 판부터 참가해요', true);
     const r = st.room, g = st.game;
     const pg = prev && prev.room.code === r.code ? prev.game : null;
     const sameRoom = prev && prev.room.code === r.code;
@@ -196,8 +207,8 @@
     // 족보 완성 토스트 (맞고/고스톱)
     if (g && pg && g.kind !== 'seotda' && pg.kind === g.kind && prev.room.round === r.round && pg.players.length === g.players.length) {
       g.players.forEach((pl, i) => {
-        const before = new Set(H.completed(pg.players[i].captured));
-        H.completed(pl.captured).filter((x) => !before.has(x)).forEach((x) => {
+        const before = new Set(H.completed(pg.players[i].captured, pg.players[i].gukYeol));
+        H.completed(pl.captured, pl.gukYeol).filter((x) => !before.has(x)).forEach((x) => {
           const st = YAKU_STAMP[x];
           if (st) SH.stamp(st[0], 'gold', { say: st[2] || st[0], sub: (i === g.mySeat ? '나' : pl.name) + (st[1] ? ' · ' + st[1] : ''), delay: 650 });
           setTimeout(() => toast(`🎉 ${pl.name} ${x} 완성!`, !st), 550);
@@ -615,7 +626,7 @@
     const inv = urlRoom ? ui.invite || { code: urlRoom } : null;
     const invHTML = inv ? (inv.missing
       ? `<div class="panel invite miss">😢 초대받은 방 <b>${esc(inv.code)}</b>을(를) 찾을 수 없어요. 방이 끝났을 수 있어요.<br><small>이름을 쓰고 들어가서 다른 방에 참여하거나 새로 만들 수 있어요.</small></div>`
-      : `<div class="panel invite"><div class="inv-t">🎉 초대받았어요!</div><div class="inv-room">${inv.host ? `<b>${esc(inv.host)}</b>님의 ` : ''}<span class="inv-g">${esc(inv.gameName || '')}</span> 방 <span class="inv-code">${esc(inv.code)}</span></div>${inv.status ? `<div class="muted">${inv.status === 'playing' ? '게임 중 — 들어가면 관전하다가 다음 판부터 참여' : '대기 중 — 들어가면 바로 참여'}</div>` : ''}<div class="inv-hint">이름만 쓰면 바로 입장해요 (방 코드 입력 필요 없음)</div></div>`) : '';
+      : `<div class="panel invite"><div class="inv-t">🎉 초대받았어요!</div><div class="inv-room">${inv.host ? `<b>${esc(inv.host)}</b>님의 ` : ''}<span class="inv-g">${esc(inv.gameName || '')}</span> 방 <span class="inv-code">${esc(inv.code)}</span></div>${inv.status ? `<div class="muted">${inv.status === 'playing' ? '게임 중 — 들어가면 관전하다가 다음 판부터 참여' : '대기 중 — 들어가면 바로 참여'}</div>` : ''}<div class="inv-hint">이름과 PIN만 쓰면 바로 입장해요 (방 코드 입력 필요 없음)</div></div>`) : '';
     $app.innerHTML = `<div class="pad login" style="position:relative">${muteBtn('snd-float')}${gamesBtn('snd snd-float games-float')}
       <h1 class="title brand">🎴 혁게임<span class="logo-sub">HYUK GAME</span></h1>
       <p class="subtitle">고스톱 · 맞고 · 섯다 — 단톡방 친구들과 실시간으로!</p>
@@ -624,10 +635,12 @@
       ${ui.authRetry ? `<div class="panel auth-retry" style="text-align:center">서버 응답이 늦어서 자동 입장을 못 했어요 (입장 정보는 이 기기에 그대로 있어요)<br><button class="btn-primary" style="margin-top:8px" data-act="retryAuth">🔄 다시 시도</button></div>` : ''}
       ${ui.authPending ? '<div class="panel" style="text-align:center">입장 중…</div>' : `<div class="panel"><h3>${inv && !inv.missing ? '내 이름' : '시작하기'}</h3>
         <input id="nick" maxlength="12" placeholder="이름 (친구들에게 보여요)" autocomplete="nickname" enterkeyhint="go" value="${esc(name)}">
-        ${ui.needPin ? `<input id="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="PIN 숫자 4자리" autocomplete="current-password" style="margin-top:8px;letter-spacing:6px">` : ''}
+        <input id="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="PIN 숫자 4자리" autocomplete="current-password" enterkeyhint="go" value="${esc(ui.loginPin || '')}" style="margin-top:8px;letter-spacing:6px">
+        ${ui.confirmPin ? `<input id="pin2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="새 PIN 한 번 더 (확인)" autocomplete="new-password" enterkeyhint="go" value="${esc(ui.loginPin2 || '')}" style="margin-top:8px;letter-spacing:6px">` : ''}
+        ${ui.confirmPin ? '' : '<div class="muted pin-help">처음이면 새 PIN을 정하고, 이미 있는 이름이면 그 PIN을 넣어요</div>'}
         ${ui.loginMsg ? `<div class="login-msg ${ui.loginMsgKind || ''}">${esc(ui.loginMsg)}</div>` : ''}
         <button class="btn-primary" style="width:100%;margin-top:10px;font-size:18px;padding:14px" data-act="enter">${inv && !inv.missing ? '방에 입장하기' : '입장하기'}</button>
-        <div class="muted" style="margin-top:8px;font-size:12px">처음이면 <b>1,000,000원</b>을 드려요. 이 폰(기기)은 자동으로 기억해서 다음부터 바로 들어가요.${ui.needPin ? '' : ' <a href="#" data-act="havePin" class="lnk">PIN이 있어요</a>'}</div></div>`}
+        <div class="muted" style="margin-top:8px;font-size:12px">처음이면 <b>1,000,000원</b>을 드려요. 이 기기는 기억해서 다음엔 바로 들어가요 (다른 기기는 이름 + PIN).</div></div>`}
       <p class="notice">※ ${DISCLAIMER}.<br>실제 돈·현금·경품과 교환되지 않으며 결제 기능이 없습니다.</p>
     </div>`;
   }
@@ -645,6 +658,17 @@
   const recN = (t) => (t ? t.w + t.d + t.l : 0);
   const rateOf = (t) => (recN(t) ? Math.round((t.w / recN(t)) * 100) : 0);
   const recText = (t, short) => (!recN(t) ? '아직 전적 없음' : short ? `${t.w}승${t.d}무${t.l}패 ${rateOf(t)}%` : `${t.w}승 ${t.d}무 ${t.l}패 · 승률 ${rateOf(t)}%`);
+  // 게임 중 자리 전적 (PROFREC_V1): 'N승 N무 N패 · 승률 N%' (판 없으면 승률 -), AI는 'AI', 손님은 표시 없음
+  const recFull = (t) => { t = t || { w: 0, d: 0, l: 0 }; return `${t.w}승 ${t.d}무 ${t.l}패 · 승률 ${recN(t) ? rateOf(t) + '%' : '-'}`; };
+  const recTiny = (t) => { t = t || { w: 0, d: 0, l: 0 }; return `${t.w}승${t.d}무${t.l}패·${recN(t) ? rateOf(t) + '%' : '-'}`; };
+  const roomP = (pid) => (S && S.room.players.find((x) => x.id === pid)) || null;
+  function seatRec(pid) {
+    const p = roomP(pid);
+    if (!p) return '';
+    if (p.ai) return '<div class="prec-line ai">🤖 AI</div>';
+    return p.rec ? `<div class="prec-line">📊 ${recTiny(p.rec.g)}</div>` : '';
+  }
+  const seatRecIn = (pid) => { const p = roomP(pid); return p && p.rec ? ` <span class="prec-in">📊 ${recTiny(p.rec.g)}</span>` : ''; };
   function rankHTML() {
     const list = ui.ranking || [];
     if (!list.length) return '<div class="muted" style="text-align:center">아직 기록이 없어요</div>';
@@ -736,7 +760,7 @@
         <button class="btn-kakao" style="width:100%;margin-top:10px;font-size:16px" data-act="share">💬 카톡으로 공유 (초대 링크)</button>
         ${hostPrivChk()}
       </div>
-      ${S.spectator ? '<div class="panel spec-note">👀 관전 중 — 자리가 모두 찼어요. 자리가 나면 참여할 수 있어요.</div>' : ''}
+      ${S.spectator ? `<div class="panel spec-note">👀 관전 중 — ${S.spectator.waiting ? '참가 예약됨: 자리가 나면 자동으로 앉아요.' : '자리가 모두 찼어요. 참가를 예약하면 자리가 날 때 자동으로 앉아요.'}<div class="actbar spec-act" style="margin-top:8px">${joinBtn()}</div></div>` : ''}
       <div class="panel"><h3>참가자 (${n}/${r.max}) · 필요 인원 ${need}</h3>${playersList()}${specList()}
         ${isHost() && n < r.max ? `<div class="row ai-add"><button class="btn-blue" data-act="addAI">🤖 AI 추가</button><div class="chips-pick" style="flex:0 0 auto;margin:0">${[['easy', '쉬움'], ['normal', '보통']].map(([k, v]) => `<button data-lv="${k}" class="${ui.create.level === k ? 'sel' : ''}">${v}</button>`).join('')}</div></div>` : ''}
         ${isHost() && n < r.max ? '<div class="muted" style="margin-top:6px">빈 자리는 AI로 채울 수 있어요. 친구가 들어오면 AI가 자리를 비켜줍니다.</div>' : ''}</div>
@@ -877,15 +901,15 @@
     const chipsOf = (id) => { const p = S.room.players.find((x) => x.id === id); return p ? p.chips : 0; };
     const others = g.seats.map((s, i) => ({ s, i })).filter((x) => x.i !== me);
     const seatBox = ({ s, i }) => `<div data-seat="${i}" data-pid="${esc(s.id)}" class="sd-seat ${g.turn === i ? 'turn' : ''} ${s.folded ? 'fold' : ''}">${timerBar(s.id)}
-        <div style="font-weight:800" class="${nmCls(s.name + (s.folded ? '(다이)' : ''))}">${esc(s.name)}${s.folded ? ' (다이)' : ''}${resvTag(s.id)}</div>
-        <div class="muted">${wonC(chipsOf(s.id) - (g.result ? 0 : s.contrib))} · 베팅 ${wonC(s.contrib)}</div>
+        <div style="font-weight:800" class="${nmCls(s.name + (s.folded ? '(다이)' : ''))}" data-prof="${esc(s.id)}">${esc(s.name)}${s.folded ? ' (다이)' : ''}${resvTag(s.id)}</div>
+        <div class="muted">${wonC(chipsOf(s.id) - (g.result ? 0 : s.contrib))} · 베팅 ${wonC(s.contrib)}</div>${seatRec(s.id)}
         <div class="cards">${s.cards.map((c) => sd(c, 'sm' + (c != null ? '' : ''))).join('')}</div>
         <div class="hn">${s.handName ? esc(s.handName) : g.turn === i ? '고민 중…' : ''}</div></div>`;
     let meBox = '', bar = '';
     if (me >= 0) {
       const s = g.seats[me];
       meBox = `<div class="sd-me" data-pid="${esc(s.id)}">${timerBar(s.id)}
-        <div class="muted">${esc(s.name)} (나) · 보유 ${wonC(chipsOf(s.id) - (g.result ? 0 : s.contrib))} · 베팅 ${wonC(s.contrib)}${s.folded ? ' · 다이' : ''}</div>
+        <div class="muted" data-prof="${esc(s.id)}">${esc(s.name)} (나)${seatRecIn(s.id)} · 보유 ${wonC(chipsOf(s.id) - (g.result ? 0 : s.contrib))} · 베팅 ${wonC(s.contrib)}${s.folded ? ' · 다이' : ''}</div>
         <div class="cards">${s.cards.map((c, k) => k === 1 && squeezing(g) ? sqCard(g, c) : sd(c, 'lg')).join('')}</div>
         <div class="hn ${squeezing(g) ? 'hid' : ''}">${esc(s.handName || '')}</div></div>`;
     } else { meBox = ''; bar = specBar(g); }
@@ -904,24 +928,34 @@
       ${meBox}<div class="bar">${bar}</div>`;
   }
 
-  const specBar = (g) => !S.spectator ? '<div class="turnbar wait spec">✅ 자리 확보 · 다음 판부터 참여합니다</div><div class="actbar idle"><button class="btn-ghost" disabled>다음 판 기다리는 중…<small>&nbsp;</small></button></div>' : `<div class="turnbar wait spec">👀 관전 중${S.spectator && S.spectator.waiting ? ' · <b>다음 판부터 참여</b>' : ''}${!g.result && g.turn >= 0 ? ` · ${esc((g.players || g.seats)[g.turn].name)} 차례` : ''}</div><div class="actbar"><button class="btn-ghost" data-act="leave">관전 나가기</button></div>`;
+  // 관전자 '게임 참가하기' (JOIN_V1): 누르면 예약 → 판이 끝나면 자동으로 자리. 예약 중이면 상태 + 취소
+  function joinBtn() {
+    const sp = S.spectator || {};
+    if (!sp.waiting) return '<button class="btn-primary join-btn" data-act="joinNext">🎮 게임 참가하기</button>';
+    const sub = !sp.seatOpen ? '자리 나면 자동 참가' : sp.rank > 1 ? `대기 ${sp.rank}번째` : '이 판 끝나면 자동 참가';
+    return `<button class="btn-ghost join-btn on" data-act="joinCancel">✅ 다음 판 참가 예약됨<small>${sub} · 취소</small></button>`;
+  }
+  const specBar = (g) => !S.spectator ? '<div class="turnbar wait spec">✅ 자리 확보 · 다음 판부터 참여합니다</div><div class="actbar idle"><button class="btn-ghost" disabled>다음 판 기다리는 중…<small>&nbsp;</small></button></div>' : `<div class="turnbar wait spec">👀 관전 중${S.spectator && S.spectator.waiting ? ' · <b>다음 판부터 참여</b>' : ''}${!g.result && g.turn >= 0 ? ` · ${esc((g.players || g.seats)[g.turn].name)} 차례` : ''}</div><div class="actbar spec-act">${joinBtn()}<button class="btn-ghost" data-act="leave">관전 나가기</button></div>`;
   // ---------- 맞고/고스톱 ----------
-  function groupCaptured(ids) {
+  // 국진(9월 열끗): 쌍피로 쓰면 피 묶음에 '쌍피' 표시, 열끗으로 쓰면 열 묶음에 '열끗' 표시
+  const gkTag = (id, gukYeol) => (id === GUKJIN ? `<span class="tb gk">${gukYeol ? '열끗' : '쌍피'}</span>` : '');
+  function groupCaptured(ids, gukYeol) {
     const groups = { gwang: [], yeol: [], tti: [], pi: [] };
-    ids.forEach((id) => { const c = HWATU[id]; (c.type === 'pi' || c.type === 'ssangpi' ? groups.pi : groups[c.type]).push(id); });
-    const piVal = groups.pi.reduce((s, id) => s + HWATU[id].piValue, 0);
+    ids.forEach((id) => { const c = effCard(id, gukYeol); (c.type === 'pi' || c.type === 'ssangpi' ? groups.pi : groups[c.type]).push(id); });
+    groups.pi.sort((x, y) => (x === GUKJIN) - (y === GUKJIN)); // 국진은 맨 뒤(위)에 → '쌍피' 표시가 가려지지 않게
+    const piVal = groups.pi.reduce((s, id) => s + effCard(id, gukYeol).piValue, 0);
     return [['광', groups.gwang, groups.gwang.length], ['열', groups.yeol, groups.yeol.length], ['띠', groups.tti, groups.tti.length], ['피', groups.pi, piVal]]
       .filter((x) => x[1].length)
-      .map(([lb, arr, cnt]) => `<div class="capg">${arr.map((id) => hw(id, 'sm', `data-cap="${id}"`)).join('')}<span class="cnt">${cnt}</span></div>`).join('');
+      .map(([lb, arr, cnt]) => `<div class="capg">${arr.map((id) => hw(id, 'sm' + (id === GUKJIN ? ' gukjin' : ''), `data-cap="${id}"`, gkTag(id, gukYeol))).join('')}<span class="cnt">${cnt}</span></div>`).join('');
   }
   function gostopHTML(g) {
     const me = g.mySeat;
     const chipsOf = (id) => { const p = S.room.players.find((x) => x.id === id); return p ? p.chips : 0; };
     const opps = g.players.map((p, i) => ({ p, i })).filter((x) => x.i !== me);
     const oppHTML = opps.map(({ p, i }) => `<div data-seat="${i}" data-pid="${esc(p.id)}" class="opp ${g.turn === i ? 'turn' : ''}">${timerBar(p.id)}
-      <div class="nm"><span class="${nmCls(p.name)}">${esc(p.name)}${resvTag(p.id)}</span><span style="color:#ffcf4a">${p.score}점</span></div>
+      <div class="nm"><span class="${nmCls(p.name)}" data-prof="${esc(p.id)}">${esc(p.name)}${resvTag(p.id)}</span><span style="color:#ffcf4a">${p.score}점</span></div>${seatRec(p.id)}
       <div class="meta">🂠 ${p.handCount}장 · ${wonC(chipsOf(p.id))}${p.go ? ` · <b style="color:#ff8a80">${p.go}고</b>` : ''}${p.shakes ? ` · 흔듦${p.shakes}` : ''}${p.ppeok ? ` · 뻑${p.ppeok}` : ''}</div>
-      <div class="caps">${groupCaptured(p.captured)}</div><div class="bdg">${badgesHTML(p.captured)}</div></div>`).join('');
+      <div class="caps">${groupCaptured(p.captured, p.gukYeol)}</div><div class="bdg">${badgesHTML(p.captured, p.gukYeol)}</div></div>`).join('');
     // 힌트: 공개 정보(먹은 패·바닥) + 내 손패만 사용
     const hv = { players: g.players, mySeat: me, floor: g.floor, hand: me >= 0 ? g.players[me].hand || [] : [] };
     const threats = me >= 0 ? H.threats(hv) : [];
@@ -953,7 +987,7 @@
     const idleBar = '<div class="actbar idle"><button class="btn-ghost" disabled>기다리는 중…<small>&nbsp;</small></button></div>';
     if (me >= 0) {
       const p = g.players[me];
-      mineHTML = `<div class="mine" data-pid="${esc(p.id)}">${timerBar(p.id)}<div class="nm"><span>${esc(p.name)} (나) · ${wonC(chipsOf(p.id))}${p.go ? ` · <b style="color:#ff8a80">${p.go}고</b>` : ''}${p.shakes ? ` · 흔듦${p.shakes}` : ''}${p.bombFlips ? ` · 폭탄패 ${p.bombFlips}` : ''}</span><span style="color:#ffcf4a">${p.score}점 / ${g.target}점</span></div><div class="caps">${groupCaptured(p.captured) || '<span class="muted">아직 먹은 패 없음</span>'}</div><div class="bdg">${badgesHTML(p.captured)}</div></div>`;
+      mineHTML = `<div class="mine" data-pid="${esc(p.id)}">${timerBar(p.id)}<div class="nm"><span data-prof="${esc(p.id)}">${esc(p.name)} (나)${seatRecIn(p.id)} · ${wonC(chipsOf(p.id))}${p.go ? ` · <b style="color:#ff8a80">${p.go}고</b>` : ''}${p.shakes ? ` · 흔듦${p.shakes}` : ''}${p.bombFlips ? ` · 폭탄패 ${p.bombFlips}` : ''}</span><span style="color:#ffcf4a">${p.score}점 / ${g.target}점</span></div><div class="caps">${groupCaptured(p.captured, p.gukYeol) || '<span class="muted">아직 먹은 패 없음</span>'}</div><div class="bdg">${badgesHTML(p.captured, p.gukYeol)}</div></div>`;
       const playable = o && o.phase === 'play';
       const sorted = (p.hand || []).slice().sort((a, b) => (HWATU[a].m || 13) - (HWATU[b].m || 13) || a - b);
       handHTML = `<div class="hand">${sorted.map((id) => {
@@ -972,7 +1006,7 @@
         } else if (o && o.phase === 'chooseFlip') {
           bar = `<div class="turnbar">뒤집은 패 ${HWATU[o.card].m}월 — 바닥에서 먹을 패를 고르세요</div>${idleBar}`;
         } else if (g.turn >= 0) {
-          bar = `<div class="turnbar wait">${esc(g.players[g.turn].name)}님 차례${g.phase === 'goStop' ? ' (고/스톱 고민 중)' : ''}</div>${idleBar}`;
+          bar = `<div class="turnbar wait">${esc(g.players[g.turn].name)}님 차례${g.phase === 'goStop' ? ' (고/스톱 고민 중)' : g.phase === 'gukjin' ? ' (국진 고르는 중)' : ''}</div>${idleBar}`;
         }
       }
     } else bar = specBar(g);
@@ -1214,6 +1248,20 @@
           <div class="res-lines">${p.scoreLines.map((l) => `${esc(l.label)} ${l.pts}점`).join('<br>')}</div>
           <div class="btns"><button class="btn-red big-go" data-gs="go">고! (${p.go + 1}고)</button><button class="btn-blue big-go" data-gs="stop">스톱</button></div></div></div>`;
       }
+      if (g.options.phase === 'gukjin') {
+        // 국진 선택: 5초 안에 안 고르면 기본 쌍피 (게임이 멈추지 않게)
+        const key = S.room.round + ':' + (g.lastPlay ? g.lastPlay.seq : 0);
+        if (ui.gkKey !== key) {
+          ui.gkKey = key;
+          setTimeout(() => { const o = S && S.game && S.game.options; if (ui.gkKey === key && o && o.phase === 'gukjin') emit('action', { type: 'gukjin', asYeol: false }); }, 5000);
+        }
+        const o = g.options;
+        return `<div class="modal-bg"><div class="modal gk-modal"><h2>국진을 어떻게 쓸까요?</h2>
+          <div class="cards">${hw(GUKJIN, 'lg')}</div>
+          <p class="muted" style="text-align:center">9월 술잔(국진) — 쌍피(피 2장) 또는 열끗 1장</p>
+          <div class="btns"><button class="btn-primary" data-gk="pi">쌍피로 (기본)<small>지금 ${o.asPi}점</small></button><button class="btn-blue" data-gk="yeol">열끗으로<small>지금 ${o.asYeol}점</small></button></div>
+          <div class="gk-bar"><i></i></div><p class="muted gk-note">5초 뒤 자동으로 쌍피</p></div></div>`;
+      }
       if (g.options.phase === 'chooseFlip') {
         return `<div class="modal-bg"><div class="modal"><h2>먹을 패 선택</h2><p style="text-align:center">뒤집은 패: ${HWATU[g.options.card].m}월</p>
           <div class="cards">${hw(g.options.card, 'lg')}</div><div class="cards">${g.options.choices.map((id) => hw(id, 'lg', `data-flipc="${id}"`)).join('')}</div>
@@ -1231,6 +1279,25 @@
         ${m.msg ? `<div class="login-msg err">${esc(m.msg)}</div>` : ''}
         <p class="muted" style="font-size:12px">돈·순위·PIN·이 기기 자동 입장은 그대로예요. 이름은 10분에 한 번 바꿀 수 있고, 옛 이름은 다른 사람이 쓸 수 있게 돼요.</p>
         <div class="btns"><button class="btn-primary" data-act="saveRename">바꾸기</button><button class="btn-ghost" data-act="close">취소</button></div></div></div>`;
+    }
+    // 자리 이름을 누르면: 이 게임 전적 + 전체 전적
+    if (m.type === 'prof') {
+      const p = roomP(m.pid) || {};
+      const body = p.ai ? '<p style="text-align:center">🤖 AI 플레이어예요. 전적은 기록하지 않아요.</p>'
+        : !p.rec ? '<p style="text-align:center">손님이라 전적이 없어요.</p>'
+          : `<table class="board rec-table prof-table"><tr><td>${GNAME[S.room.game] || '이 게임'}</td><td>${recFull(p.rec.g)}</td></tr><tr><td><b>전체</b></td><td>${recFull(p.rec.t)}</td></tr></table>`;
+      return `<div class="modal-bg" data-act="close"><div class="modal prof-pop"><h2>${p.ai ? '🤖' : '👤'} ${esc(p.name || '')}</h2>${body}
+        <div class="btns"><button class="btn-ghost" data-act="close">닫기</button></div></div></div>`;
+    }
+    // PIN 없는 옛 계정 → PIN 만들기 안내
+    if (m.type === 'setPinNow' && ui.acct) {
+      if (ui.acct.hasPin) { ui.modal = null; return ''; }
+      return `<div class="modal-bg"><div class="modal pin-now"><h2>🔒 PIN을 만들어 주세요</h2>
+        <p style="font-size:14px"><b>${esc(ui.acct.nickname)}</b>님 계정에는 아직 PIN이 없어요. 이 기기가 아닌 곳(다른 폰·PC, 새 주소)에서는 이 이름으로 들어올 수 없고, 기기 기억이 지워지면 돈도 되찾을 수 없어요.</p>
+        <input id="pn-new" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="새 PIN 숫자 4자리" autocomplete="new-password" value="${esc(m.p1 || '')}" style="letter-spacing:6px">
+        <input id="pn-new2" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="한 번 더 (확인)" autocomplete="new-password" value="${esc(m.p2 || '')}" style="letter-spacing:6px;margin-top:8px">
+        ${ui.pinNowMsg ? `<div class="login-msg err">${esc(ui.pinNowMsg)}</div>` : ''}
+        <div class="btns"><button class="btn-ghost" data-act="pinLater">나중에</button><button class="btn-primary" data-act="pinNowSave">PIN 저장</button></div></div></div>`;
     }
     // 🎮 다른 게임 메뉴 / 판 중 이동 확인
     if (m.type === 'games') {
@@ -1298,7 +1365,7 @@
       <h4>특수 족보</h4><ul><li><b>암행어사</b>(4·7 열끗): 13·18광땡을 잡음, 아니면 1끗</li><li><b>땡잡이</b>(3광·7열끗): 1~9땡을 잡음, 아니면 망통</li><li><b>구사</b>(4·9): 최고 패가 알리 이하면 재경기</li><li><b>멍텅구리구사</b>(4·9 열끗): 최고 패가 9땡 이하면 재경기</li><li>재경기: 판돈은 그대로, 남은 사람끼리 다시 패를 받습니다.</li></ul>`;
     else html = `<h4>진행</h4><ul><li>${game === 'matgo' ? '맞고(2인): 10장씩, 바닥 8장, 7점 나면 고/스톱' : '고스톱(3인): 7장씩, 바닥 6장, 3점 나면 고/스톱'}</li><li>내 차례: 손패 1장을 내서 바닥의 같은 달 패를 먹고, 더미에서 1장 뒤집어 또 맞추면 먹습니다.</li><li>바닥에 같은 달이 2장이면 하나를 골라 먹습니다.</li></ul>
       <h4>특수 상황</h4><ul><li><b>뻑</b>: 낸 패로 먹었는데 뒤집은 패도 같은 달 → 3장이 바닥에 쌓임. 나중에 먹으면 4장 + 피 1장씩 뺏기. 3뻑이면 즉시 승리.</li><li><b>쪽</b>: 맞는 패 없이 낸 패를 뒤집은 패로 먹음 → 피 1장씩 뺏기</li><li><b>따닥</b>: 바닥 2장 중 하나를 먹고, 뒤집은 패도 같은 달 → 4장 모두 + 피 1장씩</li><li><b>싹쓸이</b>: 바닥을 모두 쓸어감 → 피 1장씩</li><li><b>흔들기</b>: 같은 달 3장을 들고 낼 때 선언 → 이기면 2배</li><li><b>폭탄</b>: 같은 달 3장 + 바닥 1장 → 한번에 4장 + 피 1장씩, 2배, 이후 뒤집기만 하는 차례 2번</li><li><b>보너스 쌍피</b>: 손에서 내면 바로 먹고 한 장 더 받음, 뒤집으면 바로 먹고 한 장 더 뒤집음</li></ul>
-      <h4>점수</h4><ul><li>광: 3광 3점 (비광 포함 2점), 4광 4점, 5광 15점</li><li>열끗 5장 1점, 이후 1장당 +1 · 고도리(2·4·8월 새) 5점</li><li>띠 5장 1점, 이후 +1 · 홍단·청단·초단 각 3점</li><li>피 10장 1점, 이후 +1 (쌍피는 2장으로 계산). 9월 열끗은 열끗으로만 계산.</li></ul>
+      <h4>점수</h4><ul><li>광: 3광 3점 (비광 포함 2점), 4광 4점, 5광 15점</li><li>열끗 5장 1점, 이후 1장당 +1 · 고도리(2·4·8월 새) 5점</li><li>띠 5장 1점, 이후 +1 · 홍단·청단·초단 각 3점</li><li>피 10장 1점, 이후 +1 (쌍피는 2장으로 계산)</li><li><b>국진</b>(9월 열끗·술잔): 기본은 <b>쌍피</b>(피 2장). 먹을 때 <b>열끗</b>으로 쓸지 고를 수 있어요 (5초 안에 안 고르면 쌍피). 쌍피로 쓰면 피 뺏기 때 쌍피처럼 뺏길 수 있고, 피박도 고른 대로 계산 · 고도리와는 상관없음</li></ul>
       <h4>고/스톱 · 박</h4><ul><li>1고 +1점, 2고 +2점, 3고부터 2배씩</li><li><b>광박</b>: 광으로 났는데 상대 광 0장 → 2배</li><li><b>피박</b>: 피로 났는데 상대 피 5장 이하 → 2배</li><li><b>고박</b>: 고 한 사람이 역전당하면 ${game === 'matgo' ? '2배' : '혼자 모두 물어줌'}</li><li><b>나가리</b>: 아무도 못 나면 다음 판 2배 (최대 8배)</li><li>정산: 점수 × 점당 금액 × 배수, 진 사람이 이긴 사람에게 (가상 머니)</li></ul>`;
     return `<div class="modal-bg" data-act="close"><div class="modal rules" data-stop="1"><h2>📖 ${esc(S ? S.room.gameName : '')} 규칙</h2>${html}<p class="notice">${DISCLAIMER}.</p><div class="btns"><button class="btn-ghost" data-act="close">닫기</button></div></div></div>`;
   }
@@ -1351,17 +1418,22 @@
   // 입장 화면: 키보드 '이동/엔터'로 바로 입장
   $app.addEventListener('keydown', (ev) => {
     if (ev.key !== 'Enter') return;
+    if (ev.target.id === 'nick') { const pe = document.getElementById('pin'); if (pe && !pe.value) { ev.preventDefault(); pe.focus(); return; } }
+    if (ev.target.id === 'pin' && document.getElementById('pin2') && !document.getElementById('pin2').value) { ev.preventDefault(); document.getElementById('pin2').focus(); return; }
+    if (ev.target.closest('.pin-now')) { ev.preventDefault(); const b = document.querySelector('[data-act="pinNowSave"]'); if (b) b.click(); return; }
     if (ev.target.closest('.login')) { ev.preventDefault(); const b = document.querySelector('[data-act="enter"]'); if (b) b.click(); }
     else if (ev.target.closest('.rename-form')) { ev.preventDefault(); const b = document.querySelector('[data-act="saveRename"]'); if (b) b.click(); }
     else if (ev.target.closest('.del-form')) { ev.preventDefault(); const b = document.querySelector('[data-act="doDelete"]'); if (b) b.click(); }
     else if (ev.target.closest('.pin-form')) { ev.preventDefault(); const b = document.querySelector('[data-act="savePin"]'); if (b) b.click(); }
   });
   $app.addEventListener('click', async (ev) => {
+    const pf = ev.target.closest('[data-prof]');
+    if (pf && S && !ui.modal) { ui.modal = { type: 'prof', pid: pf.dataset.prof }; return render(); }
     const pv = ev.target.closest('[data-priv]');
     if (pv) { if (pv.dataset.priv === '1') { ui.create.priv = pv.checked; document.querySelectorAll('[data-priv="1"]').forEach((e) => { e.checked = pv.checked; }); } else emit('setPrivate', { private: pv.checked }); return; }
     const rm = ev.target.closest('[data-room]');
     if (rm) return joinCode(rm.dataset.room);
-    const t = ev.target.closest('[data-lv],[data-aic],[data-kick],[data-act],[data-game],[data-pp],[data-hand],[data-choose],[data-shake],[data-flipc],[data-gs],[data-bet],[data-floor],[data-stop]');
+    const t = ev.target.closest('[data-lv],[data-aic],[data-kick],[data-act],[data-game],[data-pp],[data-hand],[data-choose],[data-shake],[data-flipc],[data-gs],[data-gk],[data-bet],[data-floor],[data-stop]');
     if (!t) return;
     const d = t.dataset;
     if (d.stop) return;
@@ -1394,6 +1466,7 @@
     if (d.flipc != null) return emit('action', { type: 'chooseFlip', floorCard: Number(d.flipc) });
     if (d.kick) { if (d.ai || confirm('이 참가자를 내보낼까요?')) emit('kick', { pid: d.kick }); return; }
     if (d.gs) return emit('action', { type: d.gs });
+    if (d.gk) return emit('action', { type: 'gukjin', asYeol: d.gk === 'yeol' });
     if (d.bet) { beep(600, 0.06); return emit('action', { type: d.bet }); }
     switch (d.act) {
       case 'create': {
@@ -1428,9 +1501,11 @@
         const nick = (document.getElementById('nick').value || '').trim();
         const pinEl = document.getElementById('pin');
         const pin = pinEl ? (pinEl.value || '').trim() : '';
-        ui.loginName = nick;
+        const pin2El = document.getElementById('pin2');
+        if (ui.confirmPin && ui.confirmFor !== nick) ui.confirmPin = false; // 이름을 바꿨으면 확인 단계 다시
+        const pin2 = ui.confirmPin && pin2El ? (pin2El.value || '').trim() : undefined;
+        ui.loginName = nick; ui.loginPin = pin;
         if (!nick) { ui.loginMsg = '이름을 입력하세요'; ui.loginMsgKind = 'err'; return render(); }
-        if (pinEl && !/^\d{4}$/.test(pin)) { ui.loginMsg = 'PIN은 숫자 4자리예요'; ui.loginMsgKind = 'err'; return render(); }
         LS.set('hw_name', nick); // 마지막으로 쓴 이름은 로그아웃해도 기억 (다음에 미리 채움)
         // 이 기기에 토큰이 남아 있으면(지난번 응답이 끊겼거나 자동 입장이 늦었음) 먼저 그걸로 — 같은 이름이면 PIN 없이 바로 입장
         const old = LS.get('hw_token');
@@ -1438,26 +1513,31 @@
           const a = await tryAuth(old, 8000);
           if (a.ok && a.account.nickname.toLowerCase() === nick.toLowerCase()) {
             LS.set('hw_name', a.account.nickname); LS.del('hw_pend'); ui.acct = a.account; ui.authRetry = false; ui.loginMsg = null; ui.loginName = null;
-            toast(`👋 ${a.account.nickname}님, 다시 오셨네요!`, true); loadRanking(); render(); enterTargetRoom(); return;
+            toast(`👋 ${a.account.nickname}님, 다시 오셨네요!`, true); maybePinPrompt(); loadRanking(); render(); enterTargetRoom(); return;
           }
           if (a.ok) await emit('logout', { token: old }); // 다른 이름으로 들어가려는 것 → 이전 토큰은 정리
         }
+        if (!/^\d{4}$/.test(pin)) { ui.loginMsg = 'PIN 숫자 4자리를 입력하세요 (처음이면 새로 정할 PIN)'; ui.loginMsgKind = 'err'; render(); const f = document.getElementById('pin'); if (f) f.focus(); return; }
+        if (ui.confirmPin && !/^\d{4}$/.test(pin2 || '')) { ui.loginMsg = '확인용 PIN도 숫자 4자리로 입력하세요'; ui.loginMsgKind = 'err'; render(); const f = document.getElementById('pin2'); if (f) f.focus(); return; }
         const dev = newDeviceToken();
         LS.set('hw_token', dev); LS.set('hw_pend', nick); // 응답 전에 먼저 저장
         ui.loginBusy = true;
-        const r = await new Promise((res) => { const t = setTimeout(() => res({ ok: false, code: 'TIMEOUT', error: '서버 응답이 늦어요. 잠시 후 다시 눌러 주세요 (이미 입장됐다면 새로고침하면 바로 들어가져요)' }), 20000); socket.emit('enter', { nickname: nick, pin: pinEl ? pin : undefined, device: dev }, (x) => { clearTimeout(t); res(x || {}); }); });
+        const r = await new Promise((res) => { const t = setTimeout(() => res({ ok: false, code: 'TIMEOUT', error: '서버 응답이 늦어요. 잠시 후 다시 눌러 주세요 (이미 입장됐다면 새로고침하면 바로 들어가져요)' }), 20000); socket.emit('enter', { nickname: nick, pin, pin2, confirmNew: true, device: dev }, (x) => { clearTimeout(t); res(x || {}); }); });
         ui.loginBusy = false;
         if (!r.ok && r.code !== 'TIMEOUT' && LS.get('hw_token') === dev) { LS.del('hw_token'); LS.del('hw_pend'); } // 확실히 실패 → 이번 토큰 버림
         if (!r.ok) {
-          if (r.code === 'NEED_PIN') { ui.needPin = true; ui.loginMsg = r.error; ui.loginMsgKind = 'info'; }
+          if (r.code === 'CONFIRM_PIN') { ui.confirmPin = true; ui.confirmFor = nick; ui.loginMsg = r.error; ui.loginMsgKind = 'info'; render(); const f = document.getElementById('pin2'); if (f) f.focus(); return; }
+          if (r.code === 'PIN_MISMATCH') { ui.loginMsg = r.error; ui.loginMsgKind = 'err'; render(); const f = document.getElementById('pin2'); if (f) f.focus(); return; }
+          if (r.code === 'NEED_PIN' || r.code === 'NEED_NEW_PIN') { ui.loginMsg = r.error; ui.loginMsgKind = 'info'; }
           else { ui.loginMsg = r.error || '오류'; ui.loginMsgKind = 'err'; if (r.code === 'TAKEN') ui.needPin = false; }
           if (r.code === 'TAKEN') ui.loginMsg += ' — 내 이름인데 이 기기(또는 새 주소)에서 처음이라면: 원래 쓰던 기기에서 🔒 PIN을 설정한 뒤, 여기서 이름 + PIN으로 들어오세요.';
+          if (r.code === 'BAD_PIN' || r.code === 'LOCKED') ui.loginPin = '';
           render();
-          const f = document.getElementById(ui.needPin && r.code !== 'TAKEN' ? 'pin' : 'nick'); if (f) f.focus();
+          const f = document.getElementById(r.code === 'TAKEN' ? 'nick' : 'pin'); if (f) f.focus();
           return;
         }
         LS.set('hw_token', r.token); LS.set('hw_name', r.account.nickname); LS.del('hw_pend'); ui.authRetry = false;
-        ui.acct = r.account; ui.needPin = false; ui.loginMsg = null; ui.loginName = null;
+        ui.acct = r.account; ui.needPin = false; ui.confirmPin = false; ui.loginPin = ''; ui.loginPin2 = ''; ui.loginMsg = null; ui.loginName = null;
         toast(r.created ? `🎉 환영해요 ${r.account.nickname}님! ${won(r.account.balance)}으로 시작합니다` : `👋 ${r.account.nickname}님, 다시 오셨네요!`, true);
         loadRanking();
         render();
@@ -1467,7 +1547,20 @@
       case 'havePin': ev.preventDefault(); ui.loginName = (document.getElementById('nick') || {}).value || ''; ui.needPin = true; ui.loginMsg = null; render(); { const f = document.getElementById('pin'); if (f) f.focus(); } return;
       case 'pinForm': ev.preventDefault(); ui.pinForm = true; render(); { const f = document.getElementById(ui.acct && ui.acct.hasPin ? 'pin-cur' : 'pin-new'); if (f) f.focus(); } return;
       case 'cancelPin': ui.pinForm = false; return render();
+      case 'pinLater': try { sessionStorage.setItem('hw_pin_later', '1'); } catch (e) {} ui.modal = null; ui.pinNowMsg = null; return render();
+      case 'pinNowSave': {
+        const a1 = (document.getElementById('pn-new').value || '').trim(), a2 = (document.getElementById('pn-new2').value || '').trim();
+        if (!/^\d{4}$/.test(a1)) { ui.pinNowMsg = 'PIN은 숫자 4자리예요'; return render(); }
+        if (a1 !== a2) { ui.pinNowMsg = '두 번 입력한 PIN이 달라요'; return render(); }
+        const r = await emit('setPin', { pin: a1 });
+        if (!r.ok) { ui.pinNowMsg = r.error || '저장하지 못했어요'; return render(); }
+        ui.acct = r.account; ui.modal = null; ui.pinNowMsg = null;
+        toast('🔒 PIN을 저장했어요. 다른 기기에서도 이름 + PIN으로 들어올 수 있어요', true);
+        return render();
+      }
       case 'retryAuth': ui.authRetry = false; render(); return autoLogin();
+      case 'joinNext': { const r = await emit('setWaiting', { on: true }); if (r.ok && !r.seated) toast(r.rank > 1 ? `✅ 참가 예약됨 (대기 ${r.rank}번째)` : '✅ 다음 판 참가 예약됨 — 판이 끝나면 자동으로 앉아요'); return; }
+      case 'joinCancel': { const r = await emit('setWaiting', { on: false }); if (r.ok) toast('참가 예약을 취소했어요'); return; }
       case 'recInfo': ui.modal = { type: 'rec' }; return render();
       case 'games': ui.modal = { type: 'games' }; return render();
       case 'goGame': {

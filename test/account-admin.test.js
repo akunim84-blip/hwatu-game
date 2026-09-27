@@ -10,11 +10,12 @@ delete process.env.DATABASE_URL;
 const test = require('node:test');
 const assert = require('node:assert');
 const { Accounts } = require('../lib/accounts');
+const { legacyAccount } = require('./_legacy');
 const fresh = (name) => new Accounts({ databaseUrl: '', file: path.join(TMP, name + '.json') });
 
 test('계정 삭제: 이름 확인·PIN 필요, 삭제 후 토큰 무효·이름 다시 쓸 수 있음·재시작해도 없음', async () => {
   const A = fresh('del');
-  const r = await A.enter('지울사람');
+  const r = await legacyAccount(A, '지울사람'); // PIN 없는 옛 계정: 이름 확인만으로 삭제
   await A.settle('지울사람', 500000);
   await assert.rejects(A.remove('지울사람', '다른이름'), (e) => e.code === 'CONFIRM');
   await assert.rejects(A.remove('지울사람', ''), (e) => e.code === 'CONFIRM');
@@ -24,7 +25,7 @@ test('계정 삭제: 이름 확인·PIN 필요, 삭제 후 토큰 무효·이름
   assert.strictEqual(await A.byToken(r.token), null, '기기 토큰으로 더는 못 들어옴');
   assert.ok(!(await A.top(10)).some((x) => x.nickname === '지울사람'), '순위에서 빠짐');
   await A.settle('지울사람', 1000); // 지운 계정 정산 시도 → 다시 생기지 않음
-  const again = await A.enter('지울사람');
+  const again = await A.enter('지울사람', '0000');
   assert.strictEqual(again.created, true); assert.strictEqual(again.account.balance, 1000000, '같은 이름 새 계정은 새 돈');
   // PIN 계정
   await A.enter('핀계정', '1234');
@@ -54,7 +55,7 @@ test('계정 삭제 (pg-mem): 계정 행·토큰 행을 트랜잭션으로 삭�
   const B = new Accounts({ databaseUrl: 'postgres://u:p@db.example.com/x', Pool });
   await B.ready;
   assert.strictEqual(await B.byToken(r.token), null);
-  assert.strictEqual((await B.enter('피지')).created, true);
+  assert.strictEqual((await B.enter('피지', '0000')).created, true);
   // 관리자 목록·잔액·PIN 재설정도 Postgres에서
   await B.adminSetBalance('피지', 777);
   await B.adminSetPin('피지', '0101');
@@ -90,8 +91,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 test('서버: 본인 계정 삭제 → 대기방에서 빠짐, 다른 기기 로그아웃 알림, 토큰 무효, 게임 중엔 거부', async () => {
   const H = client(); const G = client();
-  const e1 = await H.emit('enter', { nickname: '떠날사람' });
-  await G.emit('enter', { nickname: '남는사람' });
+  const e1 = await H.emit('enter', { pin: '0000', nickname: '떠날사람' });
+  await G.emit('enter', { pin: '0000', nickname: '남는사람' });
   const cr = await H.emit('createRoom', { game: 'gostop' });
   await G.emit('joinRoom', { code: cr.code });
   await G.until((s) => s.room.players.length === 2);
@@ -99,9 +100,9 @@ test('서버: 본인 계정 삭제 → 대기방에서 빠짐, 다른 기기 로
   assert.ok((await H2.emit('auth', { token: e1.token })).ok);
   const N = client();
   assert.strictEqual((await N.emit('deleteAccount', { confirmName: '떠날사람' })).ok, false, '입장 안 한 소켓은 삭제 불가');
-  const bad = await H.emit('deleteAccount', { confirmName: '떠날살암' });
+  const bad = await H.emit('deleteAccount', { confirmName: '떠날살암', currentPin: '0000' });
   assert.strictEqual(bad.code, 'CONFIRM');
-  const ok = await H.emit('deleteAccount', { confirmName: '떠날사람' });
+  const ok = await H.emit('deleteAccount', { confirmName: '떠날사람', currentPin: '0000' });
   assert.ok(ok.ok, ok.error);
   const st = await G.until((s) => !s.room.players.some((p) => p.name === '떠날사람'));
   assert.strictEqual(st.room.hostId, 'u:남는사람', '방장 넘어감');
@@ -111,11 +112,11 @@ test('서버: 본인 계정 삭제 → 대기방에서 빠짐, 다른 기기 로
   assert.strictEqual((await H.emit('createRoom', { game: 'matgo' })).ok, false, '삭제 후 소켓은 로그인 안 된 상태');
   const rk = await G.emit('ranking');
   assert.ok(!rk.list.some((x) => x.nickname === '떠날사람'));
-  const re = await H.emit('enter', { nickname: '떠날사람' });
+  const re = await H.emit('enter', { pin: '0000', nickname: '떠날사람' });
   assert.ok(re.ok && re.created, '이름 다시 쓸 수 있음');
   // 진행 중인 판에 앉아 있으면 거부
   const P = client();
-  await P.emit('enter', { nickname: '게임중', pin: '3333' });
+  await P.emit('enter', { pin: '0000', nickname: '게임중', pin: '3333' });
   const pr = await P.emit('createRoom', { game: 'matgo', ai: true, level: 'easy' });
   await P.until((s) => s.room.status === 'playing');
   const np = await P.emit('deleteAccount', { confirmName: '게임중' });
@@ -174,8 +175,8 @@ test('관리자: 목록·검색, 접속 중인 계정 삭제(방에서 빠지고
   admin.fails.clear();
   const cookie = (await req('POST', '/admin/api/login', { key: process.env.ADMIN_KEY })).setCookie.split(';')[0];
   const V = client(); const W = client();
-  const ev = await V.emit('enter', { nickname: '문제손님', pin: '1212' });
-  await W.emit('enter', { nickname: '착한손님' });
+  const ev = await V.emit('enter', { pin: '0000', nickname: '문제손님', pin: '1212' });
+  await W.emit('enter', { pin: '0000', nickname: '착한손님' });
   const cr = await W.emit('createRoom', { game: 'seotda' });
   await V.emit('joinRoom', { code: cr.code });
   await W.until((s) => s.room.players.length === 2);
@@ -193,7 +194,7 @@ test('관리자: 목록·검색, 접속 중인 계정 삭제(방에서 빠지고
   const pin = await req('POST', '/admin/api/account/pin', { key: '문제손님', pin: '8642' }, cookie);
   assert.strictEqual(pin.json.pin, '8642');
   const X = client();
-  assert.ok((await X.emit('enter', { nickname: '문제손님', pin: '8642' })).ok);
+  assert.ok((await X.emit('enter', { pin: '0000', nickname: '문제손님', pin: '8642' })).ok);
   const auto = await req('POST', '/admin/api/account/pin', { key: '착한손님' }, cookie);
   assert.ok(/^\d{4}$/.test(auto.json.pin)); assert.strictEqual(auto.json.account.hasPin, true);
   // 이름 변경 (관리자는 PIN·10분 제한 없이) → 방에도 반영
@@ -210,7 +211,7 @@ test('관리자: 목록·검색, 접속 중인 계정 삭제(방에서 빠지고
   assert.deepStrictEqual(X.events, [['deleted', '관리자가 이 계정을 삭제했어요']]);
   assert.strictEqual((await V.emit('auth', { token: ev.token })).ok, false);
   assert.strictEqual((await req('POST', '/admin/api/account/delete', { key: '문제손님' }, cookie)).status, 404);
-  assert.ok((await V.emit('enter', { nickname: '문제손님' })).created, '이름 다시 쓸 수 있음');
+  assert.ok((await V.emit('enter', { pin: '0000', nickname: '문제손님' })).created, '이름 다시 쓸 수 있음');
   // 방 목록·닫기
   const rl = await req('GET', '/admin/api/rooms', null, cookie);
   assert.ok(rl.json.list.some((r) => r.code === cr.code && r.host === '착한손님2'));

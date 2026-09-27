@@ -25,6 +25,10 @@ const until = async (p, pred, ms = 10000) => { const t0 = Date.now(); let s; whi
     let s = await until(p, (x) => x.login);
     out.storage_ok = !s.warn;
     await p.$eval('#nick', (el, v) => { el.value = v; }, name);
+    await p.$eval('#pin', (el) => { el.value = '2580'; });
+    await p.$eval('[data-act="enter"]', (el) => el.click());
+    await p.waitForSelector('#pin2', { timeout: 8000 });
+    await p.$eval('#pin2', (el) => { el.value = '2580'; });
     await p.$eval('[data-act="enter"]', (el) => el.click());
     s = await until(p, (x) => x.acct === name);
     out.enter = s.acct === name && !!s.token && s.cookie;
@@ -43,7 +47,7 @@ const until = async (p, pred, ms = 10000) => { const t0 = Date.now(); let s; whi
     const t = crypto.randomBytes(32).toString('base64url');
     await p.evaluate((t, n) => { localStorage.clear(); document.cookie = 'hw_token=; Max-Age=0; Path=/'; localStorage.setItem('hw_token', t); localStorage.setItem('hw_pend', n); localStorage.setItem('hw_name', n); }, t, name2);
     const sock = io(URL, { transports: ['websocket'], forceNew: true });
-    const r = await new Promise((res) => sock.emit('enter', { nickname: name2, device: t }, res));
+    const r = await new Promise((res) => sock.emit('enter', { nickname: name2, pin: '2580', device: t }, res));
     sock.close();
     await p.reload({ waitUntil: 'networkidle2' });
     out.lost_ack_recovered = r.ok && (await until(p, (x) => x.acct === name2)).acct === name2;

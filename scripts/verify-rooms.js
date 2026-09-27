@@ -28,40 +28,36 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const tap = async (p, sel) => { await p.waitForSelector(sel, { timeout: 10000 }); await p.$eval(sel, (el) => el.click()); };
   const fits = (p) => p.evaluate(() => { const se = document.scrollingElement, app = document.getElementById('app'); return Math.max(se.scrollHeight, app.scrollHeight) <= innerHeight && se.scrollWidth <= innerWidth; });
 
-  // 0) 첫 화면: 이름만으로 입장 (기기 기억) → PIN 설정 → 다른 기기에서는 PIN 필요
+  // 0) 첫 화면 (PIN_REQUIRED_V1): 이름 + PIN 칸 → 새 이름이면 PIN 확인 칸 → 입장, 새로고침은 자동 입장, 다른 기기는 이름+PIN
   const NEW = '손님' + String(Date.now() % 100000);
-  const L = await newPage('L');
+  const L = await newPage('L', 360, 640);
   await L.goto(BASE, { waitUntil: 'networkidle0' });
   await L.waitForSelector('#nick');
-  report.loginNoPinField = !(await L.$('#pin'));
+  report.loginPinField = !!(await L.$('#pin')) && (await L.$eval('.pin-help', (e) => e.innerText)).includes('처음이면 새 PIN을 정하고');
+  report.noHavePinLink = !(await L.$('[data-act="havePin"]'));
   await L.$eval('#nick', (el, v) => { el.value = v; }, NEW);
-  await shot(L, 'login');
+  await L.$eval('#pin', (el) => { el.value = '4455'; });
   report.loginFits = await fits(L);
   await L.$eval('[data-act="enter"]', (el) => el.click());
+  await L.waitForSelector('#pin2', { timeout: 5000 });
+  report.confirmStep = await L.evaluate(() => ({ msg: document.querySelector('.login-msg').innerText, pinKept: document.getElementById('pin').value === '4455' }));
+  await L.$eval('#pin2', (el) => { el.value = '4455'; });
+  await shot(L, 'login');
+  report.confirmFits = await fits(L);
+  await L.$eval('[data-act="enter"]', (el) => el.click());
   await L.waitForSelector('[data-act="solo"]', { timeout: 5000 });
-  report.newAccount = await L.evaluate(() => ({ money: document.querySelector('.mymoney').innerText, token: (localStorage.getItem('hw_token') || '').length, notice: document.querySelector('.notice').innerText.split('\n')[0], rank: !!document.getElementById('rank-list'), pinHint: document.querySelector('.acct').innerText.includes('PIN 설정') }));
-  // 새로고침 → 기기 토큰으로 자동 입장 (이름도 PIN도 안 물어봄)
+  report.newAccount = await L.evaluate(() => ({ money: document.querySelector('.mymoney').innerText, token: (localStorage.getItem('hw_token') || '').length, pinChange: document.querySelector('.acct').innerText.includes('PIN 변경'), noPinModal: !document.querySelector('.pin-now') }));
   await L.reload({ waitUntil: 'networkidle0' });
   await L.waitForSelector('[data-act="solo"]', { timeout: 5000 });
-  report.autoLogin = await L.evaluate(() => document.querySelector('.acct').innerText.replace(/\s+/g, ' '));
-  // 다른 기기: PIN 없는 이름 → '이미 쓰는 이름'
+  report.autoLogin = await L.evaluate(() => document.querySelector('.acct').innerText.replace(/\s+/g, ' ').slice(0, 60));
   const W = await newPage('W');
   await W.goto(BASE, { waitUntil: 'networkidle0' });
   await W.waitForSelector('#nick');
-  const tryName = async (name, pin) => { await W.$eval('#nick', (el, v) => { el.value = v; }, name); if (pin != null) await W.$eval('#pin', (el, v) => { el.value = v; }, pin); await W.$eval('[data-act="enter"]', (el) => el.click()); await sleep(500); return W.evaluate(() => ({ msg: (document.querySelector('.login-msg') || {}).innerText || '', pinField: !!document.getElementById('pin'), inside: !!document.querySelector('[data-act="solo"]') })); };
-  report.takenNoPin = await tryName(NEW);
-  // 원래 기기에서 PIN 설정
-  await L.$eval('[data-act="pinForm"]', (el) => el.click());
-  await L.waitForSelector('#pin-new');
-  await L.$eval('#pin-new', (el) => { el.value = '4455'; });
-  await L.$eval('[data-act="savePin"]', (el) => el.click());
-  await sleep(500);
-  report.pinSet = await L.evaluate(() => document.querySelector('.acct').innerText.includes('PIN 변경'));
-  report.needPin = await tryName(NEW);
+  const tryName = async (name, pin) => { await W.$eval('#nick', (el, v) => { el.value = v; }, name); await W.$eval('#pin', (el, v) => { el.value = v; }, pin || ''); await W.$eval('[data-act="enter"]', (el) => el.click()); await sleep(600); return W.evaluate(() => ({ msg: (document.querySelector('.login-msg') || {}).innerText || '', confirm: !!document.getElementById('pin2'), inside: !!document.querySelector('[data-act="solo"]') })); };
+  report.noPinTyped = await tryName(NEW);
   report.wrongPin = await tryName(NEW, '0000');
   report.rightPin = await tryName(NEW, '4455');
   report.sameMoneyOtherDevice = await W.evaluate(() => (document.querySelector('.mymoney') || {}).innerText);
-  // 로그아웃해도 마지막 이름은 미리 채워짐
   W.on('dialog', (d) => d.accept());
   await W.$eval('[data-act="logout"]', (el) => el.click());
   await W.waitForSelector('#nick');
@@ -96,9 +92,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await I.goto(BASE + '/?room=' + fcode, { waitUntil: 'networkidle0' });
     await I.waitForSelector('.panel.invite .inv-code', { timeout: 5000 });
     await I.$eval('#nick', (el) => { el.value = '초대손님' + String(Date.now() % 1000); });
+    await I.$eval('#pin', (el) => { el.value = '1212'; });
     await shot(I, 'invite-join');
     report.invite = await I.evaluate(() => ({ text: document.querySelector('.panel.invite').innerText.replace(/\s+/g, ' '), codeInput: !!document.getElementById('code'), pinField: !!document.getElementById('pin') }));
     report.inviteFits = await fits(I);
+    await I.$eval('[data-act="enter"]', (el) => el.click());
+    await I.waitForSelector('#pin2', { timeout: 5000 });
+    await I.$eval('#pin2', (el) => { el.value = '1212'; });
     await I.$eval('[data-act="enter"]', (el) => el.click());
     await I.waitForSelector('.hdr', { timeout: 5000 });
     report.inviteJoined = await I.evaluate((c) => ({ inRoom: document.querySelector('.hdr').innerText.includes(c), players: [...document.querySelectorAll('.plist li')].length }), fcode);

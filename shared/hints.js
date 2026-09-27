@@ -22,8 +22,8 @@
   }
 
   // 먹은 패 → 진행도
-  function progress(captured) {
-    const cs = captured.map(C);
+  function progress(captured, gukYeol) {
+    const cs = captured.map((id) => Cards.effCard(id, gukYeol));
     const p = {
       gwang: cs.filter((c) => c.type === 'gwang').length,
       bi: cs.some((c) => c.bi),
@@ -37,8 +37,8 @@
   }
 
   // 배지 목록 [{key, label, done, n, need}]
-  function badges(captured) {
-    const p = progress(captured);
+  function badges(captured, gukYeol) {
+    const p = progress(captured, gukYeol);
     const b = [];
     if (p.gwang) b.push({ key: 'gwang', label: `광${p.gwang}`, n: p.gwang, need: 3, done: p.gwang >= 3 });
     for (const k of SET_KEYS) if (p.sets[k]) b.push({ key: k, label: `${SETS[k].short} ${p.sets[k]}/3`, n: p.sets[k], need: 3, done: p.sets[k] >= 3 });
@@ -49,8 +49,8 @@
   }
 
   // 완성된 족보 이름 목록 (토스트용 비교)
-  function completed(captured) {
-    const p = progress(captured);
+  function completed(captured, gukYeol) {
+    const p = progress(captured, gukYeol);
     const out = [];
     for (const k of SET_KEYS) if (p.sets[k] >= 3) out.push(SETS[k].name);
     if (p.gwang >= 5) out.push('5광'); else if (p.gwang >= 4) out.push('4광'); else if (p.gwang >= 3) out.push(p.bi ? '비광 3광' : '3광');

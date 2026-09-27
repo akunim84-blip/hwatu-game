@@ -10,12 +10,13 @@ async function login(p, nick, pin = '1234') {
     await p.waitForFunction(() => document.querySelector('[data-act="solo"]') || document.querySelector('.hdr'), { timeout: 10000 });
     return;
   }
+  // 이름 + PIN (PIN_REQUIRED_V1: 새 이름이면 PIN 확인 칸이 한 번 더 나옴)
   await p.$eval('#nick', (el, v) => { el.value = v; }, nick);
+  await p.$eval('#pin', (el, v) => { el.value = v; }, pin);
   await p.$eval('[data-act="enter"]', (el) => el.click());
-  // 결과: 첫 화면(로비 목록) / 초대받은 방 / PIN 요청
-  await p.waitForFunction(() => document.querySelector('[data-act="solo"]') || document.querySelector('.hdr') || document.getElementById('pin') || document.querySelector('.login-msg.err'), { timeout: 10000 });
-  if (await p.$('#pin')) {
-    await p.$eval('#pin', (el, v) => { el.value = v; }, pin);
+  await p.waitForFunction(() => document.querySelector('[data-act="solo"]') || document.querySelector('.hdr') || document.getElementById('pin2') || document.querySelector('.login-msg.err'), { timeout: 10000 });
+  if (await p.$('#pin2')) {
+    await p.$eval('#pin2', (el, v) => { el.value = v; }, pin);
     await p.$eval('[data-act="enter"]', (el) => el.click());
   }
   await p.waitForFunction(() => document.querySelector('[data-act="solo"]') || document.querySelector('.hdr'), { timeout: 10000 });

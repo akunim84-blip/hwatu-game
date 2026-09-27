@@ -30,6 +30,7 @@ function autoPlay(c) {
     if (o.phase === 'play') { const k = o.cards[0]; c.s.emit('action', k ? { type: 'play', card: k.id, floorCard: k.matches ? k.matches[0] : undefined } : { type: 'flipOnly' }, () => {}); }
     else if (o.phase === 'goStop') c.s.emit('action', { type: 'stop' }, () => {});
     else if (o.phase === 'chooseFlip') c.s.emit('action', { type: 'chooseFlip', floorCard: o.choices[0] }, () => {});
+    else if (o.phase === 'gukjin') c.s.emit('action', { type: 'gukjin', asYeol: false }, () => {});
   };
   c.s.on('state', step);
   if (c.st) step(c.st);

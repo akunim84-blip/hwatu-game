@@ -36,7 +36,7 @@ const me = (st) => st.room.players.find((p) => p.id === st.me);
 
 test('턴 타이머: 시간 초과면 서버가 자동으로 냄(맞는 패 우선) + 알림, 차례마다 새 10초, 재접속해도 안 늘어남, 늦게 낸 패는 거부', async () => {
   const A = client();
-  await A.emit('enter', { nickname: '느림보' });
+  await A.emit('enter', { pin: '0000', nickname: '느림보' });
   const cr = await A.emit('createRoom', { game: 'matgo', ai: true, level: 'easy' });
   const st = await A.until((s) => s.game && !s.game.result && s.game.turn === s.game.mySeat && s.room.turn && s.room.turn.pid === s.me);
   assert.strictEqual(st.room.turn.total, 400);
@@ -89,7 +89,7 @@ test('턴 타이머: 시간 초과면 서버가 자동으로 냄(맞는 패 우�
 
 test('섯다 타이머: 시간 초과면 체크, 체크 못 하면 다이', async () => {
   const H = client(); const G = client();
-  await H.emit('enter', { nickname: '섯다1' }); await G.emit('enter', { nickname: '섯다2' });
+  await H.emit('enter', { pin: '0000', nickname: '섯다1' }); await G.emit('enter', { pin: '0000', nickname: '섯다2' });
   const cr = await H.emit('createRoom', { game: 'seotda' });
   await G.emit('joinRoom', { code: cr.code });
   await H.until((s) => s.room.players.length === 2);
@@ -102,7 +102,7 @@ test('섯다 타이머: 시간 초과면 체크, 체크 못 하면 다이', asyn
 
 test('나가기 예약: 판 중엔 예약/취소(다른 사람에게 표시), 판 끝나고 정산 뒤 자동 퇴장 → AI가 자리, 방장 넘김; 판 아니면 바로 나가기', async () => {
   const H = client(); const G = client();
-  await H.emit('enter', { nickname: '예약자' }); await G.emit('enter', { nickname: '남을사람' });
+  await H.emit('enter', { pin: '0000', nickname: '예약자' }); await G.emit('enter', { pin: '0000', nickname: '남을사람' });
   const cr = await H.emit('createRoom', { game: 'seotda' });
   await G.emit('joinRoom', { code: cr.code });
   await H.until((s) => s.room.players.length === 2);
@@ -133,7 +133,7 @@ test('나가기 예약: 판 중엔 예약/취소(다른 사람에게 표시), �
   // H는 이제 방에 없음
   assert.strictEqual((await H.emit('action', { type: 'check' })).ok, false);
   // 연결이 끊기면 예약 취소
-  const X = client(); await X.emit('enter', { nickname: '끊길사람' });
+  const X = client(); await X.emit('enter', { pin: '0000', nickname: '끊길사람' });
   await X.emit('joinRoom', { code: cr.code }); // 결과 화면 → 자리 (AI 자리 넘겨받기)
   await wait(100);
   [H, G, X].forEach((c) => c.s.close());
@@ -141,7 +141,7 @@ test('나가기 예약: 판 중엔 예약/취소(다른 사람에게 표시), �
 
 test('나가기 예약: 혼자+AI 방이면 판 끝나고 방이 닫힘', async () => {
   const S = client();
-  await S.emit('enter', { nickname: '혼자' });
+  await S.emit('enter', { pin: '0000', nickname: '혼자' });
   const cr = await S.emit('createRoom', { game: 'seotda', ai: true, level: 'easy' });
   await S.until((s) => s.room.status === 'playing');
   const r = await S.emit('reserveLeave', { on: true });
@@ -156,7 +156,7 @@ test('나가기 예약: 혼자+AI 방이면 판 끝나고 방이 닫힘', async 
 
 test('나가기 예약: 연결이 끊기면 예약 취소', async () => {
   const H = client(); const G = client();
-  await H.emit('enter', { nickname: '끊김1' }); await G.emit('enter', { nickname: '끊김2' });
+  await H.emit('enter', { pin: '0000', nickname: '끊김1' }); await G.emit('enter', { pin: '0000', nickname: '끊김2' });
   const cr = await H.emit('createRoom', { game: 'seotda' });
   await G.emit('joinRoom', { code: cr.code });
   await H.until((s) => s.room.players.length === 2);
@@ -173,7 +173,7 @@ test('나가기 예약: 연결이 끊기면 예약 취소', async () => {
 
 test('채팅: 방 안(관전자 포함)에만, 100자·공백 정리, 꺾쇠 무력화, 5초에 5개, 최근 대화는 들어올 때 받음', async () => {
   const H = client(); const G = client(); const O = client();
-  await H.emit('enter', { nickname: '수다1' }); await G.emit('enter', { nickname: '수다2' }); await O.emit('enter', { nickname: '다른방' });
+  await H.emit('enter', { pin: '0000', nickname: '수다1' }); await G.emit('enter', { pin: '0000', nickname: '수다2' }); await O.emit('enter', { pin: '0000', nickname: '다른방' });
   const cr = await H.emit('createRoom', { game: 'matgo' });
   await O.emit('createRoom', { game: 'matgo' });
   const N = client();
@@ -200,7 +200,7 @@ test('채팅: 방 안(관전자 포함)에만, 100자·공백 정리, 꺾쇠 무
   assert.strictEqual(lim.ok, false); assert.strictEqual(lim.code, 'RATE');
   assert.ok((await G.emit('chat', { text: '나이스!' })).ok, '다른 사람은 따로 셈');
   // 관전자·새로 들어온 사람: 최근 대화 받음
-  const V = client(); await V.emit('enter', { nickname: '구경' });
+  const V = client(); await V.emit('enter', { pin: '0000', nickname: '구경' });
   await V.emit('joinRoom', { code: cr.code }); // 맞고 2명 꽉 참 → 관전
   await wait(50);
   assert.ok(V.history && V.history.code === cr.code);

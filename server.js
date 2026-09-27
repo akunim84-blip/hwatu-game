@@ -132,7 +132,8 @@ function moneyOf(p) {
 function seatHuman(room, sp) {
   const G = GAMES[room.game];
   if (room.players.length >= G.max) {
-    const bot = room.players.slice().reverse().find((x) => x.ai);
+    // AI 자리 → 없으면 판 사이에 '나가기'로 떠난 사람 자리 (연결만 끊긴 사람은 자리 유지)
+    const bot = room.players.slice().reverse().find((x) => x.ai) || (room.status !== 'playing' && room.players.find((x) => x.left && !x.connected));
     if (!bot) return false;
     const k = room.players.indexOf(bot);
     room.players.splice(k, 1);
@@ -145,17 +146,20 @@ function seatHuman(room, sp) {
   if (!room.players.some((x) => x.id === room.hostId && !x.ai && x.connected)) room.hostId = sp.id;
   return true;
 }
-// 판과 판 사이(대기실·결과 화면·새 판 시작 직전)에 기다리던 관전자를 자리에 앉힘
+// 판과 판 사이(대기실·결과 화면·새 판 시작 직전)에 참가 예약한 관전자를 자리에 앉힘 (JOIN_V1)
+// 먼저 예약한 사람부터(waitAt). 자리가 없으면(사람으로 꽉 참) 예약은 그대로 두고 다음 판 사이에 다시 봄
 function promoteWaiting(room) {
   if (room.status === 'playing') return false;
   let changed = false;
-  for (const sp of room.spectators.slice()) {
-    if (!sp.waiting || !sp.connected) continue;
-    if (!seatHuman(room, sp)) { sp.waiting = false; continue; }
+  const queue = room.spectators.filter((sp) => sp.waiting && sp.connected).sort((a, b) => (a.waitAt || 0) - (b.waitAt || 0));
+  for (const sp of queue) {
+    if (!seatHuman(room, sp)) break;
     changed = true;
   }
   return changed;
 }
+// 관전자의 참가 예약 순서 (1부터), 없으면 0
+const waitRank = (room, sp) => (sp.waiting ? room.spectators.filter((x) => x.waiting && x.connected).sort((a, b) => (a.waitAt || 0) - (b.waitAt || 0)).indexOf(sp) + 1 : 0);
 
 function broadcast(room) {
   room.lastActive = Date.now();
@@ -169,7 +173,7 @@ function broadcast(room) {
   for (const sp of room.spectators) {
     if (!sp.sockets.size) continue;
     const view = room.engine ? room.engine.view(sp.id) : null;
-    for (const sid of sp.sockets) io.to(sid).emit('state', { room: pub, me: sp.id, game: view, spectator: { waiting: !!sp.waiting } });
+    for (const sid of sp.sockets) io.to(sid).emit('state', { room: pub, me: sp.id, game: view, spectator: { waiting: !!sp.waiting, rank: waitRank(room, sp), seatOpen: openSeat(room) } });
   }
   pushRoomList();
 }
@@ -316,6 +320,7 @@ function timeoutAction(room, pid) {
   const o = v.options;
   if (!o) return;
   if (o.phase === 'goStop') return e.act(pid, { type: 'stop' });
+  if (o.phase === 'gukjin') return e.act(pid, { type: 'gukjin', asYeol: false }); // 국진: 시간 넘기면 기본 쌍피
   try {
     const a = AI.decide(v, { level: 'normal', rand: () => 0.5 });
     if (!a) throw new Error('no decision');
@@ -540,7 +545,7 @@ io.on('connection', (socket) => {
     let p = room.players.find((x) => x.id === pid) || room.spectators.find((x) => x.id === pid);
     if (!p) {
       // 새로 온 사람: 판 사이면 바로 자리(빈 자리/AI 자리), 판 진행 중이면 관전 → 다음 판부터 AI 자리 넘겨받기, 사람으로 꽉 차면 관전만
-      p = { id: pid, name: cleanName(name), acct: acct || null, connected: true, sockets: new Set(), waiting: openSeat(room) };
+      p = { id: pid, name: cleanName(name), acct: acct || null, connected: true, sockets: new Set(), waiting: openSeat(room), waitAt: Date.now() };
       if (!acct) p.chips = START_CHIPS;
       room.spectators.push(p);
       p.isNew = true;
@@ -549,7 +554,7 @@ io.on('connection', (socket) => {
     if (name) p.name = cleanName(name);
     if (cur && cur.player !== p) detach();
     p.sockets.add(socket.id);
-    p.connected = true;
+    p.connected = true; delete p.left;
     if (room.players.includes(p) && (!room.hostId || !room.players.some((x) => x.id === room.hostId))) room.hostId = p.id;
     cur = { room, player: p };
     socket.join(room.code);
@@ -691,6 +696,18 @@ io.on('connection', (socket) => {
     const m = pushChat(room, { pid: player.id, name: player.name, text });
     ok(cb, { n: m.n });
   });
+  // 관전자: 게임 참가 예약/취소 (JOIN_V1) — 판이 끝나면 자동으로 자리(AI 자리·빈 자리)에 앉음, 사람으로 꽉 차 있으면 자리 날 때까지 유지
+  socket.on('setWaiting', (d, cb) => {
+    if (!cur) return fail(cb, '방에 없어요');
+    const { room, player } = cur;
+    if (!room.spectators.includes(player)) return fail(cb, '이미 자리에 앉아 있어요', 'SEATED');
+    const on = !!(d && d.on);
+    if (on && !player.waiting) player.waitAt = Date.now();
+    player.waiting = on;
+    if (on && room.status !== 'playing') promoteWaiting(room);
+    broadcast(room);
+    ok(cb, { waiting: !!player.waiting, seated: room.players.includes(player), rank: waitRank(room, player) });
+  });
   socket.on('leave', (d, cb) => {
     if (!cur) return ok(cb);
     const { room, player } = cur;
@@ -706,7 +723,7 @@ io.on('connection', (socket) => {
     }
     if (!playing && room.status === 'lobby') {
       room.players = room.players.filter((x) => x !== player);
-    } else if (player.sockets.size === 0) player.connected = false;
+    } else if (player.sockets.size === 0) { player.connected = false; player.left = true; }
     if (room.hostId === player.id) {
       const nh = room.players.find((x) => !x.ai && x.connected && x !== player) || room.players.find((x) => !x.ai && x !== player);
       if (nh) room.hostId = nh.id;
@@ -731,7 +748,7 @@ io.on('connection', (socket) => {
       const now = Date.now();
       if (now - pinTries.t > 60000) { pinTries.n = 0; pinTries.t = now; }
       if (++pinTries.n > 12) throw new Error('잠시 후 다시 시도하세요');
-      const r = await accounts.enter(d.nickname, d.pin, d.device);
+      const r = await accounts.enter(d.nickname, d.pin, d.device, { confirm: !!d.confirmNew, pin2: d.pin2 });
       bindAcct({ key: r.key });
       ok(cb, { token: r.token, account: r.account, created: r.created });
     } catch (e) { fail(cb, e.message, e.code); }

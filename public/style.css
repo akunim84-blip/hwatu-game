@@ -444,3 +444,25 @@ ol.rank .rn .rrec,.plist .prec{display:block;font-size:11px;font-weight:400;colo
 .games-list button{padding:14px;font-size:17px}
 .games-confirm p{word-break:keep-all}
 .login-warn{font-size:12px;line-height:1.45;background:rgba(255,160,60,.16);box-shadow:0 0 0 1px rgba(255,170,80,.5)}
+.pin-help{font-size:12px;margin-top:6px}
+#pin::placeholder,#pin2::placeholder,.pin-now input::placeholder,.pin-form input::placeholder{letter-spacing:normal}
+/* 게임 참가 예약 (JOIN_V1) */
+.spec-act .join-btn{flex:1.7}
+.join-btn small{display:block;font-size:11px;font-weight:600;opacity:.85;margin-top:2px}
+.join-btn.on{background:rgba(80,200,120,.22);color:#dfffe9;box-shadow:0 0 0 1px rgba(120,230,160,.6)}
+.spec-note .actbar{background:none;padding:0}
+/* 자리 전적 (PROFREC_V1) */
+.prec-line{font-size:10.5px;line-height:1.15;color:#cfe3d6;opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prec-line.ai{opacity:.6}
+.prec-in{font-size:11px;font-weight:600;color:#cfe3d6;white-space:nowrap}
+[data-prof]{cursor:pointer}
+.prof-table td{padding:6px 4px}
+/* 국진 (9월 술잔) 쌍피/열끗 표시와 선택 창 */
+.card .tb.gk{background:#d2691e}
+.card.sm .tb.gk{font-size:7px;width:auto;height:auto;padding:0 2px;line-height:10px;border-radius:3px;right:1px;bottom:1px}
+.gk-modal .btns button{flex:1}
+.gk-modal .btns small{display:block;font-size:11px;opacity:.85;font-weight:600}
+.gk-bar{height:5px;border-radius:3px;background:rgba(255,255,255,.15);overflow:hidden;margin:10px 0 2px}
+.gk-bar i{display:block;height:100%;background:#ffcf4a;animation:gkbar 5s linear forwards}
+@keyframes gkbar{from{width:100%}to{width:0}}
+.gk-note{text-align:center;font-size:12px;margin:2px 0 0}

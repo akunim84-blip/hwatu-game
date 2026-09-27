@@ -19,12 +19,12 @@ test('족보 구성원 정의: 고도리·홍단·청단·초단·광', () => {
 });
 
 test('진행도/배지: 피는 쌍피 2장으로, 완성 표시', () => {
-  const caps = [id(1, 1), id(2, 1), id(3, 1), id(1, 0), id(11, 1), id(5, 2), id(9, 0)];
+  const caps = [id(1, 1), id(2, 1), id(3, 1), id(1, 0), id(11, 1), id(5, 2), id(10, 0)];
   const p = H.progress(caps);
   assert.equal(p.sets.hong, 3);
   assert.equal(p.gwang, 1);
   assert.equal(p.pi, 3); // 쌍피 2 + 피 1
-  assert.equal(p.yeol, 1); // 9월 열끗
+  assert.equal(p.yeol, 1); // 10월 열끗
   const b = H.badges(caps);
   const hong = b.find((x) => x.key === 'hong');
   assert.equal(hong.label, '홍단 3/3');

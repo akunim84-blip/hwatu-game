@@ -122,7 +122,7 @@ test('판 결과 → 승/무/패: 이긴 사람 승, 나머지 패, 나가리 �
 
 test('실제 판 (섯다 2명): 두 계정 모두 한 판 기록, 결과와 일치, 방 상태에 전적 표시', async () => {
   const H = client(); const G = client();
-  await H.emit('enter', { nickname: '전적1' }); await G.emit('enter', { nickname: '전적2' });
+  await H.emit('enter', { pin: '0000', nickname: '전적1' }); await G.emit('enter', { pin: '0000', nickname: '전적2' });
   const cr = await H.emit('createRoom', { game: 'seotda' });
   await G.emit('joinRoom', { code: cr.code });
   await H.until((s) => s.room.players.length === 2);
@@ -145,7 +145,7 @@ test('실제 판 (섯다 2명): 두 계정 모두 한 판 기록, 결과와 일�
 
 test('AI 방: 사람 계정만 기록, AI는 전적 없음', async () => {
   const S = client();
-  await S.emit('enter', { nickname: '혼자전적' });
+  await S.emit('enter', { pin: '0000', nickname: '혼자전적' });
   await S.emit('createRoom', { game: 'seotda', ai: true, level: 'easy' });
   const st = await S.until((s) => s.room.status === 'result', 30000);
   await accounts.idle();

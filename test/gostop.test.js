@@ -37,7 +37,7 @@ test('점수: 광', () => {
 test('점수: 고도리, 열끗', () => {
   assert.equal(scoreCaptured([id(2, 0), id(4, 0), id(8, 1)]).total, 5);
   assert.equal(scoreCaptured([id(2, 0), id(4, 0), id(8, 1), id(5, 0), id(6, 0)]).total, 6); // 고도리5 + 열끗5장 1
-  assert.equal(scoreCaptured([id(5, 0), id(6, 0), id(7, 0), id(9, 0), id(10, 0), id(12, 1)]).total, 2);
+  assert.equal(scoreCaptured([id(5, 0), id(6, 0), id(7, 0), id(9, 0), id(10, 0), id(12, 1)], { gukYeol: true }).total, 2); // 국진을 열끗으로
 });
 test('점수: 단, 띠', () => {
   assert.equal(scoreCaptured([id(1, 1), id(2, 1), id(3, 1)]).total, 3);
@@ -172,6 +172,7 @@ function randomPlay(n, bonus) {
         g.act(pid, { type: 'play', card: c.id, floorCard: c.matches && c.matches[Math.floor(Math.random() * c.matches.length)], shake: Math.random() < 0.5 });
       }
     } else if (o.phase === 'chooseFlip') g.act(pid, { type: 'chooseFlip', floorCard: o.choices[1] });
+    else if (o.phase === 'gukjin') g.act(pid, { type: 'gukjin', asYeol: Math.random() < 0.5 });
     else g.act(pid, { type: Math.random() < 0.5 ? 'go' : 'stop' });
     const cnt = g.floor.length + g.deck.length + g.players.reduce((s, p) => s + p.hand.length + p.captured.length, 0) + (g.pending ? 1 : 0);
     assert.equal(cnt, total, 'card conservation');
