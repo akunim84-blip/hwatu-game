@@ -32,6 +32,12 @@ const GAMES = {
 };
 
 const app = express();
+// 역방향 프록시(Synology/nginx/Cloudflare Tunnel) 뒤에서 돌 때: TRUST_PROXY=1 이면 바로 앞 프록시 1단계를 믿음
+// → req.ip 가 실제 접속자 IP, req.secure 가 X-Forwarded-Proto(https) 반영. (Docker 이미지 기본값 1, Render 는 설정 안 함 = 예전 동작)
+const TRUST_PROXY = process.env.TRUST_PROXY;
+if (TRUST_PROXY) app.set('trust proxy', /^\d+$/.test(TRUST_PROXY) ? Number(TRUST_PROXY) : TRUST_PROXY === 'true' ? true : TRUST_PROXY);
+// 가벼운 상태 확인 (Docker HEALTHCHECK·역방향 프록시용): DB 안 건드림
+app.get('/healthz', (req, res) => res.set('Cache-Control', 'no-store').type('text').send('ok'));
 app.use('/cards', express.static(path.join(__dirname, 'public', 'cards'), { maxAge: '7d' }));
 app.use('/shared', express.static(path.join(__dirname, 'shared')));
 app.use(express.static(path.join(__dirname, 'public'), { maxAge: 0 }));
@@ -821,6 +827,10 @@ setInterval(() => {
 
 if (require.main === module) {
   server.listen(PORT, () => console.log(`화투 게임 서버: http://localhost:${PORT}`));
+  // Docker 정지/재시작(SIGTERM) 때 바로 깔끔하게 종료
+  const bye = (sig) => { console.log(`${sig} 받음 → 서버 종료`); io.close(); setTimeout(() => process.exit(0), 800).unref(); };
+  process.once('SIGTERM', () => bye('SIGTERM'));
+  process.once('SIGINT', () => bye('SIGINT'));
 }
 const admin = require('./lib/admin').mountAdmin(app, { accounts, rooms, io, GAMES, broadcast, pushRanking, applyRename, dropAccountEverywhere, closeRoom, inRound });
 

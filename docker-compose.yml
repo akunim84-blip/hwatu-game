@@ -1,0 +1,39 @@
+# 혁게임 — Synology Container Manager '프로젝트'용 (docs/synology.md 참고)
+# ⚠️ 이 파일은 NAS 에서 붙여넣은 뒤 <...> 부분만 바꾸세요. 실제 비밀번호/주소를 GitHub 에 올리지 마세요.
+services:
+  hwatu-game:
+    image: ghcr.io/akunim84-blip/hwatu-game:latest
+    container_name: hwatu-game
+    restart: unless-stopped
+    ports:
+      - "3300:3300"
+    environment:
+      TZ: Asia/Seoul
+      PORT: "3300"
+      TRUST_PROXY: "1"
+      # Render 대시보드 > hwatu-game > Environment 의 DATABASE_URL 값을 그대로 붙여넣기 (따옴표 안에)
+      DATABASE_URL: "<여기에 DATABASE_URL 붙여넣기>"
+      # 관리자 키 (선택, 비워 둬도 됨). 관리자 페이지에서 키를 한 번이라도 바꿨다면 DB 에 저장된 키가 쓰이므로 비워 두세요.
+      # DB 에 저장된 키가 없을 때만 이 값이 관리자 키가 됩니다 (8자 이상, 남이 못 맞힐 값).
+      ADMIN_KEY: ""
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3300/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # (선택) 공유기 포트포워딩을 못 할 때만: Cloudflare Tunnel
+  # 평소에는 'tunnel' 프로필이라 실행되지 않습니다.
+  # 쓰려면: ① TUNNEL_TOKEN 에 Cloudflare 터널 토큰을 넣고 ② 아래 'profiles: ["tunnel"]' 줄을 지운 뒤 ③ 프로젝트를 다시 빌드.
+  # Cloudflare 쪽 '공개 호스트 이름'의 서비스 주소는  http://hwatu-game:3300  으로 지정합니다.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: hwatu-cloudflared
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: "<Cloudflare 터널 토큰>"
+    depends_on:
+      - hwatu-game
