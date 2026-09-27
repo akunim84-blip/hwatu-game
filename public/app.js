@@ -3,11 +3,27 @@
   const { HWATU, SEOTDA, MONTH_NAMES, typeLabel } = window.HwatuCards;
   const H = window.HwatuHints;
   const $app = document.getElementById('app');
-  const LS = {
-    get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } },
-    set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} },
-    del: (k) => { try { localStorage.removeItem(k); } catch (e) {} },
+  // 기기 기억 (DEVICE_V2): localStorage + 입장 정보(토큰·이름)는 1st-party 쿠키에도 복사 (한쪽이 지워져도 복구)
+  const CK = { hw_token: 1, hw_name: 1, hw_pend: 1 };
+  const ck = {
+    get: (k) => { try { const m = document.cookie.match(new RegExp('(?:^|; )' + k + '=([^;]*)')); return m ? decodeURIComponent(m[1]) : null; } catch (e) { return null; } },
+    set: (k, v) => { try { document.cookie = `${k}=${encodeURIComponent(v)}; Max-Age=34560000; Path=/; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`; } catch (e) {} },
+    del: (k) => { try { document.cookie = `${k}=; Max-Age=0; Path=/; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`; } catch (e) {} },
   };
+  const LS = {
+    get: (k) => {
+      let v = null; try { v = localStorage.getItem(k); } catch (e) {}
+      if (v == null && CK[k]) { v = ck.get(k); if (v != null) try { localStorage.setItem(k, v); } catch (e) {} }
+      return v;
+    },
+    set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} if (CK[k]) ck.set(k, v); },
+    del: (k) => { try { localStorage.removeItem(k); } catch (e) {} if (CK[k]) ck.del(k); },
+  };
+  // 저장이 막힌 브라우저(사이트 데이터 차단·시크릿 창 등)면 첫 화면에 알려 줌
+  const storageOk = (() => { try { localStorage.setItem('hw_t', '1'); const ok = localStorage.getItem('hw_t') === '1'; localStorage.removeItem('hw_t'); if (ok) return true; } catch (e) {} ck.set('hw_t', '1'); const c = ck.get('hw_t') === '1'; ck.del('hw_t'); return c; })();
+  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) {}
+  // 입장 전에 기기에서 만드는 토큰 (32바이트, base64url 43자) — 응답이 끊겨도 다음 방문에 자동 로그인
+  const newDeviceToken = () => { const b = new Uint8Array(32); crypto.getRandomValues(b); return btoa(String.fromCharCode(...b)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); };
   let pid = LS.get('hw_pid');
   if (!pid) { pid = 'p' + Math.random().toString(36).slice(2) + Date.now().toString(36); LS.set('hw_pid', pid); }
   const params = new URLSearchParams(location.search);
@@ -76,17 +92,29 @@
   // ---------- 소켓 ----------
   // 계정: 저장된 토큰으로 자동 로그인 → (있으면) 하던 방으로 복귀
   ui.authPending = !!LS.get('hw_token');
-  socket.on('connect', async () => {
+  // 저장된 토큰 확인: 서버가 '없는 토큰'(BAD_TOKEN)이라고 할 때만 지움. DB가 느리거나 잠깐 오류면 토큰을 지키고 다시 시도
+  function tryAuth(tk, ms) {
+    return new Promise((res) => {
+      const t = setTimeout(() => res({ ok: false, code: 'TIMEOUT' }), ms || 12000);
+      socket.emit('auth', { token: tk }, (x) => { clearTimeout(t); res(x || {}); });
+    });
+  }
+  async function autoLogin() {
     const tk = LS.get('hw_token');
-    if (tk) {
-      const r = await new Promise((res) => socket.emit('auth', { token: tk }, (x) => res(x || {})));
-      ui.authPending = false;
-      if (r.ok) ui.acct = r.account;
-      else { LS.del('hw_token'); ui.acct = null; }
-      if (!S) render();
-      loadRanking();
-    }
-    if (!ui.acct) { LS.del('hw_room'); if (urlRoom) loadInvite(); return; }
+    if (!tk) return;
+    ui.authPending = true; ui.authRetry = false;
+    const r = await tryAuth(tk);
+    if (LS.get('hw_token') !== tk) return; // 그 사이 다른 이름으로 입장함
+    ui.authPending = false;
+    if (r.ok) { ui.acct = r.account; LS.del('hw_pend'); LS.set('hw_name', r.account.nickname); }
+    else if (r.code === 'BAD_TOKEN') { LS.del('hw_token'); LS.del('hw_pend'); ui.acct = null; }
+    else { ui.acct = null; ui.authRetry = true; }
+    if (!S) render();
+    loadRanking();
+  }
+  socket.on('connect', async () => {
+    if (LS.get('hw_token')) await autoLogin();
+    if (!ui.acct) { if (!ui.authRetry) LS.del('hw_room'); if (urlRoom) loadInvite(); return; }
     enterTargetRoom();
   });
   // 초대 링크(?room=코드)가 있으면 그 방, 없으면 하던 방으로 바로 입장
@@ -592,6 +620,8 @@
       <h1 class="title brand">🎴 혁게임<span class="logo-sub">HYUK GAME</span></h1>
       <p class="subtitle">고스톱 · 맞고 · 섯다 — 단톡방 친구들과 실시간으로!</p>
       ${invHTML}
+      ${!storageOk ? '<div class="panel login-warn">⚠️ 이 브라우저는 사이트 데이터 저장이 막혀 있어서 다음에 또 이름을 입력해야 해요. (시크릿 창이 아닌 일반 창에서 열거나, 브라우저 설정에서 이 사이트의 쿠키·사이트 데이터를 허용해 주세요)</div>' : ''}
+      ${ui.authRetry ? `<div class="panel auth-retry" style="text-align:center">서버 응답이 늦어서 자동 입장을 못 했어요 (입장 정보는 이 기기에 그대로 있어요)<br><button class="btn-primary" style="margin-top:8px" data-act="retryAuth">🔄 다시 시도</button></div>` : ''}
       ${ui.authPending ? '<div class="panel" style="text-align:center">입장 중…</div>' : `<div class="panel"><h3>${inv && !inv.missing ? '내 이름' : '시작하기'}</h3>
         <input id="nick" maxlength="12" placeholder="이름 (친구들에게 보여요)" autocomplete="nickname" enterkeyhint="go" value="${esc(name)}">
         ${ui.needPin ? `<input id="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="PIN 숫자 4자리" autocomplete="current-password" style="margin-top:8px;letter-spacing:6px">` : ''}
@@ -1402,15 +1432,31 @@
         if (!nick) { ui.loginMsg = '이름을 입력하세요'; ui.loginMsgKind = 'err'; return render(); }
         if (pinEl && !/^\d{4}$/.test(pin)) { ui.loginMsg = 'PIN은 숫자 4자리예요'; ui.loginMsgKind = 'err'; return render(); }
         LS.set('hw_name', nick); // 마지막으로 쓴 이름은 로그아웃해도 기억 (다음에 미리 채움)
-        const r = await new Promise((res) => socket.emit('enter', { nickname: nick, pin: pinEl ? pin : undefined }, (x) => res(x || {})));
+        // 이 기기에 토큰이 남아 있으면(지난번 응답이 끊겼거나 자동 입장이 늦었음) 먼저 그걸로 — 같은 이름이면 PIN 없이 바로 입장
+        const old = LS.get('hw_token');
+        if (old) {
+          const a = await tryAuth(old, 8000);
+          if (a.ok && a.account.nickname.toLowerCase() === nick.toLowerCase()) {
+            LS.set('hw_name', a.account.nickname); LS.del('hw_pend'); ui.acct = a.account; ui.authRetry = false; ui.loginMsg = null; ui.loginName = null;
+            toast(`👋 ${a.account.nickname}님, 다시 오셨네요!`, true); loadRanking(); render(); enterTargetRoom(); return;
+          }
+          if (a.ok) await emit('logout', { token: old }); // 다른 이름으로 들어가려는 것 → 이전 토큰은 정리
+        }
+        const dev = newDeviceToken();
+        LS.set('hw_token', dev); LS.set('hw_pend', nick); // 응답 전에 먼저 저장
+        ui.loginBusy = true;
+        const r = await new Promise((res) => { const t = setTimeout(() => res({ ok: false, code: 'TIMEOUT', error: '서버 응답이 늦어요. 잠시 후 다시 눌러 주세요 (이미 입장됐다면 새로고침하면 바로 들어가져요)' }), 20000); socket.emit('enter', { nickname: nick, pin: pinEl ? pin : undefined, device: dev }, (x) => { clearTimeout(t); res(x || {}); }); });
+        ui.loginBusy = false;
+        if (!r.ok && r.code !== 'TIMEOUT' && LS.get('hw_token') === dev) { LS.del('hw_token'); LS.del('hw_pend'); } // 확실히 실패 → 이번 토큰 버림
         if (!r.ok) {
           if (r.code === 'NEED_PIN') { ui.needPin = true; ui.loginMsg = r.error; ui.loginMsgKind = 'info'; }
           else { ui.loginMsg = r.error || '오류'; ui.loginMsgKind = 'err'; if (r.code === 'TAKEN') ui.needPin = false; }
+          if (r.code === 'TAKEN') ui.loginMsg += ' — 내 이름인데 이 기기(또는 새 주소)에서 처음이라면: 원래 쓰던 기기에서 🔒 PIN을 설정한 뒤, 여기서 이름 + PIN으로 들어오세요.';
           render();
           const f = document.getElementById(ui.needPin && r.code !== 'TAKEN' ? 'pin' : 'nick'); if (f) f.focus();
           return;
         }
-        LS.set('hw_token', r.token); LS.set('hw_name', r.account.nickname);
+        LS.set('hw_token', r.token); LS.set('hw_name', r.account.nickname); LS.del('hw_pend'); ui.authRetry = false;
         ui.acct = r.account; ui.needPin = false; ui.loginMsg = null; ui.loginName = null;
         toast(r.created ? `🎉 환영해요 ${r.account.nickname}님! ${won(r.account.balance)}으로 시작합니다` : `👋 ${r.account.nickname}님, 다시 오셨네요!`, true);
         loadRanking();
@@ -1421,6 +1467,7 @@
       case 'havePin': ev.preventDefault(); ui.loginName = (document.getElementById('nick') || {}).value || ''; ui.needPin = true; ui.loginMsg = null; render(); { const f = document.getElementById('pin'); if (f) f.focus(); } return;
       case 'pinForm': ev.preventDefault(); ui.pinForm = true; render(); { const f = document.getElementById(ui.acct && ui.acct.hasPin ? 'pin-cur' : 'pin-new'); if (f) f.focus(); } return;
       case 'cancelPin': ui.pinForm = false; return render();
+      case 'retryAuth': ui.authRetry = false; render(); return autoLogin();
       case 'recInfo': ui.modal = { type: 'rec' }; return render();
       case 'games': ui.modal = { type: 'games' }; return render();
       case 'goGame': {

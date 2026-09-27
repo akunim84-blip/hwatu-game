@@ -731,7 +731,7 @@ io.on('connection', (socket) => {
       const now = Date.now();
       if (now - pinTries.t > 60000) { pinTries.n = 0; pinTries.t = now; }
       if (++pinTries.n > 12) throw new Error('잠시 후 다시 시도하세요');
-      const r = await accounts.enter(d.nickname, d.pin);
+      const r = await accounts.enter(d.nickname, d.pin, d.device);
       bindAcct({ key: r.key });
       ok(cb, { token: r.token, account: r.account, created: r.created });
     } catch (e) { fail(cb, e.message, e.code); }
@@ -789,10 +789,11 @@ io.on('connection', (socket) => {
   socket.on('auth', async (d, cb) => {
     try {
       const a = await accounts.byToken(d && d.token);
-      if (!a) throw new Error('다시 입장해 주세요');
+      if (!a && accounts.kind === 'json(fallback)') return fail(cb, '계정 저장소에 연결하지 못했어요. 잠시 후 다시 시도하세요', 'RETRY'); // DB가 잠깐 안 될 때 기기 토큰을 버리지 않게
+      if (!a) return fail(cb, '다시 입장해 주세요', 'BAD_TOKEN'); // 이 토큰은 확실히 없음 → 기기에서 지워도 됨
       bindAcct(a);
       ok(cb, { account: accounts.pub(a) });
-    } catch (e) { fail(cb, e.message); }
+    } catch (e) { console.error('[auth] 확인 실패(일시적):', e.message); fail(cb, '잠시 후 다시 시도하세요', 'RETRY'); } // DB 오류 등 → 기기 토큰은 지우지 않음
   });
   socket.on('logout', async (d, cb) => {
     try { if (d && d.token) await accounts.logout(d.token); } catch (e) {}
