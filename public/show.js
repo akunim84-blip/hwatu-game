@@ -10,6 +10,14 @@
     return layer;
   }
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // 효과 글자: 뒤 층(외곽선) + 앞 층(그라디언트) — 글자를 한 자씩 쪼개지 않음 (FXFONT_V1)
+  const fxText = (t) => `<span class="o" aria-hidden="true">${esc(t)}</span><span class="f">${esc(t)}</span>`;
+  // 글꼴을 다 받기 전엔 도장을 띄우지 않음 (다른 글꼴로 그렸다 바뀌는 것 방지). 1.5초 넘으면 그냥 진행
+  let fontOk = !(document.fonts && document.fonts.load);
+  const fontReady = fontOk ? Promise.resolve() : Promise.race([
+    document.fonts.load('400 64px HyukFx', '고도리승리패배나가리').then(() => document.fonts.ready),
+    new Promise((r) => setTimeout(r, 1500)),
+  ]).catch(() => {}).then(() => { fontOk = true; });
 
   // ---------- 큰 도장 (차례대로 하나씩) ----------
   const q = [];
@@ -22,6 +30,7 @@
     if (!busy) next();
   }
   function next() {
+    if (!fontOk) { busy = true; fontReady.then(next); return; }
     const it = q.shift();
     if (!it) { busy = false; return; }
     busy = true;
@@ -31,7 +40,7 @@
       const el = document.createElement('div');
       el.className = 'stamp s-' + it.kind;
       const len = [...it.text].length;
-      el.innerHTML = `<div class="st-rays"></div><div class="st-txt${len > 4 ? ' long' : ''}${len > 6 ? ' xlong' : ''}">${esc(it.text)}</div>${it.sub ? `<div class="st-sub">${esc(it.sub)}</div>` : ''}`;
+      el.innerHTML = `<div class="st-rays"></div><div class="st-txt${len > 4 ? ' long' : ''}${len > 6 ? ' xlong' : ''}">${fxText(it.text)}</div>${it.sub ? `<div class="st-sub">${esc(it.sub)}</div>` : ''}`;
       L().appendChild(el);
       try { FX.stampSnd && FX.stampSnd(it.kind === 'bad' ? 'bad' : it.kind === 'go' ? 'go' : it.kind === 'stop' ? 'stop' : 'good', it.say); } catch (e) {}
       if (navigator.vibrate && (!navigator.userActivation || navigator.userActivation.hasBeenActive) && (it.kind === 'go' || it.kind === 'stop' || it.kind === 'gold')) try { navigator.vibrate(40); } catch (e) {}
@@ -112,9 +121,10 @@
 
   // ---------- 승리/패배/나가리 배너 (결과 카드가 뜨기 직전 한 번) ----------
   function endBanner(kind, text, sub) {
+    if (!fontOk) { fontReady.then(() => endBanner(kind, text, sub)); return; }
     const el = document.createElement('div');
     el.className = 'end-bn ' + kind;
-    el.innerHTML = `${kind === 'win' ? '<div class="st-rays"></div>' : ''}<div class="eb-t">${esc(text)}</div>${sub ? `<div class="eb-s">${esc(sub)}</div>` : ''}`;
+    el.innerHTML = `${kind === 'win' ? '<div class="st-rays"></div>' : ''}<div class="eb-t">${fxText(text)}</div>${sub ? `<div class="eb-s">${esc(sub)}</div>` : ''}`;
     L().appendChild(el);
     if (kind === 'win') { burst('win'); try { FX.jingle && FX.jingle(true); FX.say && FX.say('승리', { delay: 0.35, pitch: 250 }); } catch (e) {} }
     else if (kind === 'lose') { burst('lose'); try { FX.jingle && FX.jingle(false); FX.say && FX.say('패배', { delay: 0.3, pitch: 190 }); } catch (e) {} }

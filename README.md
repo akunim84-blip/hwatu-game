@@ -55,6 +55,7 @@
 | `test/` | 족보·점수·엔진 자동 테스트 (`npm test`) |
 | `sim/simulate.js` | 봇들이 실제 서버에 접속해 수백 판을 돌리는 시뮬레이션 (`npm run sim`) |
 | `lib/admin.js`, `public-admin/admin.html` | 관리자 페이지 (`/admin`) API와 화면 |
+| `scripts/verify-stamp-font.js` | 도장·배너·선 정하기가 한 글꼴(Black Han Sans)로만 그려지는지 CDP로 확인 + `screenshots/stamp-font-*.png` |
 | `scripts/verify-names.js` | 긴/짧은 이름 계정 칸·자리 이름 잘림 확인 + 전적 표 스크린샷 |
 | `scripts/change-admin-key.sh` | 관리자 비밀번호 바꾸기 (HWATU_NEW_ADMIN_KEY) |
 | `scripts/verify-account.js` | 이름 바꾸기·계정 삭제·관리자 페이지 헤드리스 확인 + 스크린샷 (localhost:3300) |
@@ -90,6 +91,12 @@
 참고 (무료 플랜):
 - 15분 동안 접속이 없으면 서버가 잠들고, 다음 접속 때 깨어나는 데 30초~1분 정도 걸립니다.
 - 방 정보는 메모리에만 저장되므로 서버가 재시작되면 방이 사라집니다.
+
+## 글꼴
+
+- 도장·승패 배너(고!, 뻑, 고도리, 38광땡, 승리!, 판 시작 …): **Black Han Sans** (Copyright 2015 The Black Han Sans Project Authors, https://github.com/zesstype/Black-Han-Sans), **SIL Open Font License 1.1** — `public/fonts/OFL-BlackHanSans.txt`.
+  `public/fonts/hyuk-fx.woff2`는 KS X 1001 한글 2,350자 + 게임 소스·음성 목록에 나오는 글자 + ASCII만 남기고 겹친 윤곽선을 합친 부분 글꼴(약 84KB)입니다. 다시 만들기: `scripts/build-fx-font.py` (fonttools).
+- 로고 '혁게임': Noto Sans KR 부분 글꼴 (SIL OFL 1.1) — `public/fonts/OFL-NotoSansKR.txt`.
 
 ## 카드 이미지 출처와 라이선스
 

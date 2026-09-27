@@ -652,7 +652,7 @@
         <div class="row"><input id="code" maxlength="5" placeholder="방 코드 5자리" style="text-transform:uppercase" value="${esc(urlRoom)}"><button class="btn-blue" style="flex:0 0 90px" data-act="join">참여</button></div>
       </div>
       <div class="panel rank-panel"><h3>🏆 순위 <small class="muted">가진 돈 Top 10</small></h3><div id="rank-list">${rankHTML()}</div></div>
-      <p class="notice">※ <b>${DISCLAIMER}</b>.<br>실제 돈·현금·경품과 교환되지 않으며 결제 기능이 없습니다. 0원이 되면 300,000원으로 다시 시작해요.<br><span style="opacity:.7">카드 그림: Wikimedia Commons “Hwatu” 세트 (Spenĉjo, Louie Mantia Jr. 원작 기반), <a href="/cards/LICENSE.txt" style="color:#ffcf4a">CC BY-SA 4.0</a><br>배경음악·효과음·연출: 혁게임 자체 제작 (Web Audio 실시간 합성)<br>외침 목소리: <a href="https://github.com/myshell-ai/MeloTTS" style="color:#ffcf4a">MeloTTS</a> 한국어 모델(MyShell.ai, MIT 라이선스)로 생성</span></p>
+      <p class="notice">※ <b>${DISCLAIMER}</b>.<br>실제 돈·현금·경품과 교환되지 않으며 결제 기능이 없습니다. 0원이 되면 300,000원으로 다시 시작해요.<br><span style="opacity:.7">카드 그림: Wikimedia Commons “Hwatu” 세트 (Spenĉjo, Louie Mantia Jr. 원작 기반), <a href="/cards/LICENSE.txt" style="color:#ffcf4a">CC BY-SA 4.0</a><br>배경음악·효과음·연출: 혁게임 자체 제작 (Web Audio 실시간 합성)<br>외침 목소리: <a href="https://github.com/myshell-ai/MeloTTS" style="color:#ffcf4a">MeloTTS</a> 한국어 모델(MyShell.ai, MIT 라이선스)로 생성<br>글꼴: 도장·배너 <a href="/fonts/OFL-BlackHanSans.txt" style="color:#ffcf4a">Black Han Sans</a>, 로고 <a href="/fonts/OFL-NotoSansKR.txt" style="color:#ffcf4a">Noto Sans KR</a> (SIL OFL 1.1)</span></p>
     </div>${modalHTML()}`;
   }
 

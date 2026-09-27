@@ -101,7 +101,7 @@ function rig(e, spec) {
     });
     await bump(); await sleep(600);
     await p.$eval(`.hand [data-hand=\"${card(8, 'yeol')}\"]`, (el) => el.click()); await sleep(150); await tap(p, '[data-act=\"playSel\"]');
-    await p.waitForFunction(() => [...document.querySelectorAll('.stamp .st-txt')].some((x) => x.textContent === '고도리'), { timeout: 5000 }).catch(() => {});
+    await p.waitForFunction(() => [...document.querySelectorAll('.stamp .st-txt .f')].some((x) => x.textContent === '고도리'), { timeout: 5000 }).catch(() => {});
     await sleep(350);
     report.godoriStamp = await p.evaluate(() => [...document.querySelectorAll('.stamp')].map((x) => x.innerText.replace(/\s+/g, ' ')));
     await shot(p, 'callout-godori');
@@ -121,7 +121,7 @@ function rig(e, spec) {
     await p.waitForSelector('[data-gs="go"]', { timeout: 6000 });
     await sleep(900);
     await tap(p, '[data-gs="go"]');
-    await p.waitForFunction(() => [...document.querySelectorAll('.stamp .st-txt')].some((x) => x.textContent === '1고!'), { timeout: 5000 }).catch(() => {});
+    await p.waitForFunction(() => [...document.querySelectorAll('.stamp .st-txt .f')].some((x) => x.textContent === '1고!'), { timeout: 5000 }).catch(() => {});
     await sleep(300);
     report.goStamp = await p.evaluate(() => [...document.querySelectorAll('.stamp')].map((x) => x.innerText.replace(/\s+/g, ' ')));
     await shot(p, 'callout-go');
@@ -207,7 +207,7 @@ function rig(e, spec) {
       if (room.engine.result && room.engine.result.reveal.length >= 2) ok = true;
       else { await p.waitForSelector('.res-ov', { timeout: 8000 }).catch(() => {}); await tap(p, '[data-act="next"]'); await sleep(3500); }
     }
-    await p.waitForFunction(() => [...document.querySelectorAll('.stamp .st-txt')].some((x) => /광땡/.test(x.textContent)), { timeout: 5000 }).catch(() => {});
+    await p.waitForFunction(() => [...document.querySelectorAll('.stamp .st-txt .f')].some((x) => /광땡/.test(x.textContent)), { timeout: 5000 }).catch(() => {});
     await sleep(250);
     report.showdown = await p.evaluate(() => ({ stamp: [...document.querySelectorAll('.stamp')].map((x) => x.innerText.replace(/\s+/g, ' ')), flipped: document.querySelectorAll('.sd-seat .card.rv').length }));
     await shot(p, 'seotda-showdown');
