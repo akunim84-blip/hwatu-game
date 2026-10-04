@@ -466,3 +466,8 @@ ol.rank .rn .rrec,.plist .prec{display:block;font-size:11px;font-weight:400;colo
 .gk-bar i{display:block;height:100%;background:#ffcf4a;animation:gkbar 5s linear forwards}
 @keyframes gkbar{from{width:100%}to{width:0}}
 .gk-note{text-align:center;font-size:12px;margin:2px 0 0}
+/* AI 난이도 4단계 */
+.lv-pick button{padding:8px 2px;font-size:13px;white-space:nowrap}
+.ai-lv{margin-top:8px;display:flex;align-items:center;gap:8px}
+.ai-lv .muted{flex:0 0 auto;font-size:12px}
+.ai-lv .chips-pick{flex:1;margin:0;gap:4px}

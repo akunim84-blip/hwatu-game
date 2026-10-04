@@ -65,6 +65,7 @@ function createRoom(game, perPoint, bonus, priv) {
     spectators: [], // {id, name, connected, sockets:Set, waiting} — 관전자 (waiting: 다음 판부터 AI 자리 대신 참여)
     hostId: null, status: 'lobby', engine: null, round: 0, mult: 1,
     history: [], lastWinner: null, actSeq: 0, dealer: 0, timer: null, lastActive: Date.now(),
+    aiLevel: 'normal', // AI 난이도 (방 전체): easy | normal | hard | expert — 방장이 판 사이에만 바꿈
   };
   rooms.set(code, room);
   return room;
@@ -82,6 +83,7 @@ function publicRoom(room) {
     code: room.code, game: room.game, gameName: GAMES[room.game].name, perPoint: room.perPoint, bonus: room.bonus,
     min: GAMES[room.game].min, max: GAMES[room.game].max,
     hostId: room.hostId, status: room.status, actSeq: room.actSeq, round: room.round, mult: room.mult,
+    aiLevel: room.aiLevel, aiLevelName: AI.LEVELS[room.aiLevel],
     players: room.players.map((p) => ({ id: p.id, name: p.name, chips: p.chips, net: p.net || 0, refilled: p.refilled || 0, member: !!p.acct, connected: p.connected, leaveReserved: !!p.leaveReserved, rec: recOf(p, room.game), wins: p.wins, ai: !!p.ai, level: p.ai ? p.level : undefined, playing: !!(room.engine && room.engine.seatOf(p.id) >= 0) })),
     history: room.history.slice(-10),
     startChips: START_CHIPS,
@@ -104,6 +106,7 @@ function roomListItem(room) {
     code: room.code, game: room.game, gameName: GAMES[room.game].name, host: host ? host.name : '?',
     humans: room.players.length - aiCount, ai: aiCount, max: GAMES[room.game].max, status: room.status, round: room.round,
     perPoint: room.perPoint, spectators: room.spectators.filter((x) => x.connected).length,
+    aiLevel: aiCount ? room.aiLevel : undefined, aiLevelName: aiCount ? AI.LEVELS[room.aiLevel] : undefined,
     join: room.status === 'playing' ? (open ? 'next' : 'watch') : open ? 'seat' : 'watch', // seat: 바로 참여, next: 관전 후 다음 판부터, watch: 관전만
   };
 }
@@ -384,7 +387,7 @@ function scheduleAuto(room) {
 function runAI(room, p) {
   const e = room.engine;
   try {
-    const a = AI.decide(e.view(p.id), { level: p.level });
+    const a = AI.decide(e.view(p.id), { level: p.level, memory: p.mem || (p.mem = {}) });
     if (!a) throw new Error('AI 결정 없음');
     e.act(p.id, a);
   } catch (err) {
@@ -394,12 +397,14 @@ function runAI(room, p) {
   afterAction(room);
 }
 
-function addAI(room, level) {
+// AI 자리 추가: 난이도는 방 설정(room.aiLevel)을 따름 (레벨 인자는 옛 클라이언트 호환용, 무시)
+function addAI(room) {
   const G = GAMES[room.game];
+  const level = AI.normLevel(room.aiLevel);
   if (room.players.length >= G.max) throw new Error('빈 자리가 없습니다');
   const used = new Set(room.players.map((x) => x.name));
   const base = AI.AI_NAMES.find((n) => !used.has('🤖 ' + n)) || 'AI봇';
-  const p = { id: 'ai-' + Math.random().toString(36).slice(2, 10), name: '🤖 ' + base, chips: START_CHIPS, net: 0, connected: true, sockets: new Set(), wins: 0, ai: true, level: level === 'easy' ? 'easy' : 'normal' };
+  const p = { id: 'ai-' + Math.random().toString(36).slice(2, 10), name: '🤖 ' + base, chips: START_CHIPS, net: 0, connected: true, sockets: new Set(), wins: 0, ai: true, level, mem: {} }; // mem: 이 방에서의 기억 (섯다 초고수: 상대 성향, 공개 정보만)
   room.players.push(p);
   return p;
 }
@@ -462,6 +467,8 @@ function afterAction(room) {
     room.lastWinner = r.winners[0] || room.lastWinner;
     room.history.push({ round: room.round, winners: r.winnerNames, nagari: !!r.nagari, delta: r.chipDelta, summary: r.nagari ? '나가리' : `${r.winnerNames.join(', ')} 승` });
     room.status = 'result';
+    // AI는 판이 끝난 뒤 공개된 결과만 기억 (섯다 초고수의 상대 성향 파악)
+    for (const p of room.players) if (p.ai && e.seatOf(p.id) >= 0) { try { AI.observe(e.view(p.id), { level: p.level, memory: p.mem || (p.mem = {}) }); } catch (err) { /* 무시 */ } }
     promoteWaiting(room); // 판이 끝나면 기다리던 사람이 AI 자리를 넘겨받음
     if (room.players.some((p) => p.leaveReserved)) {
       broadcast(room); // 예약한 사람도 결과(정산된 돈)를 먼저 받음
@@ -486,8 +493,7 @@ function processReservedLeaves(room) {
     const k = room.players.indexOf(p);
     room.players.splice(k, 1);
     if (room.players.length < G.max && humans(room).length) {
-      const lvl = (room.players.find((x) => x.ai) || {}).level;
-      const bot = addAI(room, lvl || 'normal');
+      const bot = addAI(room);
       room.players.splice(room.players.indexOf(bot), 1);
       room.players.splice(k, 0, bot); // 같은 자리에 AI
     }
@@ -579,12 +585,13 @@ io.on('connection', (socket) => {
       const perPoint = Math.max(1, Math.min(100000, Math.floor(Number(d.perPoint) || DEFAULT_STAKE[game])));
       const who = ident(d);
       const room = createRoom(game, perPoint, d.bonus, d.private);
+      room.aiLevel = AI.normLevel(d.level);
       attach(room, who.pid, who.name, who.acct);
       room.hostId = who.pid;
       if (d.ai) {
         // 'AI와 바로 하기': AI로 자리를 채우고 바로 시작
         const n = game === 'seotda' ? Math.max(1, Math.min(4, Math.floor(Number(d.aiCount) || 3))) : GAMES[game].min - 1;
-        for (let k = 0; k < n; k++) addAI(room, d.level);
+        for (let k = 0; k < n; k++) addAI(room);
         room.solo = true;
         startRound(room);
       }
@@ -631,9 +638,26 @@ io.on('connection', (socket) => {
       const { room, player } = cur;
       if (room.hostId !== player.id) throw new Error('방장만 AI를 추가할 수 있습니다');
       if (room.status === 'playing') throw new Error('게임 중에는 추가할 수 없습니다');
-      addAI(room, d && d.level);
+      addAI(room);
       if (room.status === 'result') { room.status = 'lobby'; room.engine = null; }
       ok(cb); broadcast(room);
+    } catch (e) { fail(cb, e.message); }
+  });
+  // AI 난이도 (방 전체): 방장만, 판 사이(대기실·결과 화면)에만. 앉아 있는 AI 모두 바로 바뀜
+  socket.on('setAiLevel', (d, cb) => {
+    try {
+      if (!cur) throw new Error('방에 없습니다');
+      const { room, player } = cur;
+      if (room.hostId !== player.id) throw new Error('방장만 AI 난이도를 바꿀 수 있어요');
+      if (room.status === 'playing') throw new Error('판이 끝난 뒤에 바꿀 수 있어요');
+      const lv = d && d.level;
+      if (!AI.LEVELS[lv]) throw new Error('알 수 없는 난이도');
+      room.aiLevel = lv;
+      for (const p of room.players) if (p.ai) p.level = lv;
+      sysChat(room, `AI 난이도: ${AI.LEVELS[lv]}`);
+      ok(cb, { level: lv });
+      broadcast(room);
+      pushRoomList();
     } catch (e) { fail(cb, e.message); }
   });
   socket.on('resetChips', (d, cb) => {

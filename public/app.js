@@ -655,6 +655,10 @@
   }
   // 전적 (STATS_V1)
   const GNAME = { gostop: '고스톱', matgo: '맞고', seotda: '섯다' };
+  // AI 난이도 4단계 (방 전체 설정)
+  const AI_LV = [['easy', '쉬움'], ['normal', '보통'], ['hard', '고수'], ['expert', '초고수']];
+  const LVN = Object.fromEntries(AI_LV);
+  const lvName = (k) => LVN[k] || '보통';
   const recN = (t) => (t ? t.w + t.d + t.l : 0);
   const rateOf = (t) => (recN(t) ? Math.round((t.w / recN(t)) * 100) : 0);
   const recText = (t, short) => (!recN(t) ? '아직 전적 없음' : short ? `${t.w}승${t.d}무${t.l}패 ${rateOf(t)}%` : `${t.w}승 ${t.d}무 ${t.l}패 · 승률 ${rateOf(t)}%`);
@@ -665,7 +669,7 @@
   function seatRec(pid) {
     const p = roomP(pid);
     if (!p) return '';
-    if (p.ai) return '<div class="prec-line ai">🤖 AI</div>';
+    if (p.ai) return `<div class="prec-line ai">🤖 AI·${lvName(p.level)}</div>`;
     return p.rec ? `<div class="prec-line">📊 ${recTiny(p.rec.g)}</div>` : '';
   }
   const seatRecIn = (pid) => { const p = roomP(pid); return p && p.rec ? ` <span class="prec-in">📊 ${recTiny(p.rec.g)}</span>` : ''; };
@@ -702,7 +706,7 @@
       </div>
       <div class="panel ai-panel"><h3>🤖 AI와 바로 하기 <small class="muted">혼자서 ${GAME_INFO[c.game].name} 연습 · ${c.game === 'seotda' ? '판돈' : '점당'} ${wonC(stake)}</small></h3>
         <div class="muted">난이도</div>
-        <div class="chips-pick">${[['easy', '쉬움'], ['normal', '보통']].map(([k, v]) => `<button data-lv="${k}" class="${c.level === k ? 'sel' : ''}">${v}</button>`).join('')}</div>
+        <div class="chips-pick lv-pick">${AI_LV.map(([k, v]) => `<button data-lv="${k}" class="${c.level === k ? 'sel' : ''}">${v}</button>`).join('')}</div>
         ${c.game === 'seotda' ? `<div class="muted">AI 인원</div><div class="chips-pick">${[1, 2, 3, 4].map((v) => `<button data-aic="${v}" class="${c.aiCount === v ? 'sel' : ''}">${v}명</button>`).join('')}</div>` : `<div class="muted">AI ${c.game === 'matgo' ? '1명' : '2명'}과 대결</div>`}
         ${privChk()}
         <button class="btn-blue" style="width:100%;margin-top:8px;font-size:16px" data-act="solo">🤖 ${GAME_INFO[c.game].name} AI와 바로 하기</button>
@@ -724,7 +728,7 @@
     return `<ul class="rlist">${list.map((x) => `<li><button class="room-item" data-room="${esc(x.code)}">
       <span class="rg">${esc(x.gameName)}</span>
       <span class="rinfo"><b>${esc(x.host)}</b>님의 방 <small class="muted">${esc(x.code)}${x.round ? ` · ${x.round}판` : ''}</small><br>
-        <small>👤 ${x.humans}명${x.ai ? ` · 🤖 AI ${x.ai}` : ''} / ${x.max}자리${x.spectators ? ` · 👀 ${x.spectators}` : ''} · <span class="st ${st[x.status][1]}">${st[x.status][0]}</span></small></span>
+        <small>👤 ${x.humans}명${x.ai ? ` · 🤖 AI ${x.ai}${x.aiLevelName ? '·' + esc(x.aiLevelName) : ''}` : ''} / ${x.max}자리${x.spectators ? ` · 👀 ${x.spectators}` : ''} · <span class="st ${st[x.status][1]}">${st[x.status][0]}</span></small></span>
       <span class="rj ${x.join}"><small class="rs">${x.game === 'seotda' ? '판돈' : '점당'} ${wonC(x.perPoint)}</small><br>${jl[x.join]}</span></button></li>`).join('')}</ul>`;
   }
   function getName() {
@@ -741,7 +745,7 @@
 
   function playersList() {
     const r = S.room;
-    return `<ul class="plist">${r.players.map((p) => `<li class="${p.ai ? 'ai' : ''}" data-pid="${esc(p.id)}"><div>${esc(p.name)}${p.ai ? `<span class="tag ai">AI·${p.level === 'easy' ? '쉬움' : '보통'}</span>` : ''}${p.id === r.hostId ? '<span class="tag">방장</span>' : ''}${p.id === S.me ? '<span class="tag" style="background:#4ae0ff">나</span>' : ''}${!p.connected ? '<span class="tag off">연결끊김</span>' : ''}${isHost() && p.id !== S.me && r.status !== 'playing' ? `<button class="btn-ghost" style="padding:4px 8px;font-size:11px;margin-left:6px" data-kick="${esc(p.id)}" ${p.ai ? 'data-ai="1"' : ''}>${p.ai ? '빼기' : '내보내기'}</button>` : ''}${p.rec ? `<small class="prec" title="전체 ${recText(p.rec.t)}">${GNAME[r.game]} ${recText(p.rec.g, true)}</small>` : ''}</div><div class="chip ${p.chips < 0 ? 'neg' : ''}">${won(p.chips)}</div></li>`).join('')}</ul>`;
+    return `<ul class="plist">${r.players.map((p) => `<li class="${p.ai ? 'ai' : ''}" data-pid="${esc(p.id)}"><div>${esc(p.name)}${p.ai ? `<span class="tag ai">AI·${lvName(p.level)}</span>` : ''}${p.id === r.hostId ? '<span class="tag">방장</span>' : ''}${p.id === S.me ? '<span class="tag" style="background:#4ae0ff">나</span>' : ''}${!p.connected ? '<span class="tag off">연결끊김</span>' : ''}${isHost() && p.id !== S.me && r.status !== 'playing' ? `<button class="btn-ghost" style="padding:4px 8px;font-size:11px;margin-left:6px" data-kick="${esc(p.id)}" ${p.ai ? 'data-ai="1"' : ''}>${p.ai ? '빼기' : '내보내기'}</button>` : ''}${p.rec ? `<small class="prec" title="전체 ${recText(p.rec.t)}">${GNAME[r.game]} ${recText(p.rec.g, true)}</small>` : ''}</div><div class="chip ${p.chips < 0 ? 'neg' : ''}">${won(p.chips)}</div></li>`).join('')}</ul>`;
   }
 
   const hostPrivChk = () => (isHost() ? `<label class="chk" style="justify-content:center"><input type="checkbox" data-priv="host" ${S.room.private ? 'checked' : ''}> 🔒 비공개 방 (진행 중인 방 목록에 안 보이게)</label>` : '');
@@ -753,7 +757,7 @@
     const need = r.game === 'seotda' ? `${r.min}~${r.max}명` : `${r.min}명`;
     $app.innerHTML = `${header()}<div class="pad">
       <div class="panel" style="text-align:center">
-        <div class="muted">${esc(r.gameName)} · ${r.game === 'seotda' ? '기본 판돈' : '점당'} ${won(r.perPoint)}${r.game !== 'seotda' ? (r.bonus ? ' · 보너스패 O' : ' · 보너스패 X') : ''}</div>
+        <div class="muted">${esc(r.gameName)} · ${r.game === 'seotda' ? '기본 판돈' : '점당'} ${won(r.perPoint)}${r.game !== 'seotda' ? (r.bonus ? ' · 보너스패 O' : ' · 보너스패 X') : ''} · 🤖 AI ${lvName(r.aiLevel)}</div>
         <div class="mymoney">💰 내 돈 <b>${won(meP() ? meP().chips : ui.acct ? ui.acct.balance : 0)}</b></div>
         <div class="code-big">${esc(r.code)}</div>
         <div class="muted">방 코드</div>
@@ -762,7 +766,8 @@
       </div>
       ${S.spectator ? `<div class="panel spec-note">👀 관전 중 — ${S.spectator.waiting ? '참가 예약됨: 자리가 나면 자동으로 앉아요.' : '자리가 모두 찼어요. 참가를 예약하면 자리가 날 때 자동으로 앉아요.'}<div class="actbar spec-act" style="margin-top:8px">${joinBtn()}</div></div>` : ''}
       <div class="panel"><h3>참가자 (${n}/${r.max}) · 필요 인원 ${need}</h3>${playersList()}${specList()}
-        ${isHost() && n < r.max ? `<div class="row ai-add"><button class="btn-blue" data-act="addAI">🤖 AI 추가</button><div class="chips-pick" style="flex:0 0 auto;margin:0">${[['easy', '쉬움'], ['normal', '보통']].map(([k, v]) => `<button data-lv="${k}" class="${ui.create.level === k ? 'sel' : ''}">${v}</button>`).join('')}</div></div>` : ''}
+        ${isHost() && n < r.max ? '<div class="row ai-add"><button class="btn-blue" data-act="addAI">🤖 AI 추가</button></div>' : ''}
+        ${isHost() && (n < r.max || r.players.some((p) => p.ai)) ? `<div class="ai-lv"><span class="muted">🤖 AI 난이도</span><div class="chips-pick lv-pick">${AI_LV.map(([k, v]) => `<button data-ailv="${k}" class="${r.aiLevel === k ? 'sel' : ''}">${v}</button>`).join('')}</div></div>` : ''}
         ${isHost() && n < r.max ? '<div class="muted" style="margin-top:6px">빈 자리는 AI로 채울 수 있어요. 친구가 들어오면 AI가 자리를 비켜줍니다.</div>' : ''}</div>
       <div class="stack">
         ${isHost() ? `<button class="btn-primary" style="padding:16px;font-size:18px" data-act="start" ${enough ? '' : 'disabled'}>${enough ? '게임 시작' : `인원 부족 (${need} 필요)`}</button>` : '<div class="panel" style="text-align:center">방장이 게임을 시작하길 기다리는 중…</div>'}
@@ -1433,7 +1438,7 @@
     if (pv) { if (pv.dataset.priv === '1') { ui.create.priv = pv.checked; document.querySelectorAll('[data-priv="1"]').forEach((e) => { e.checked = pv.checked; }); } else emit('setPrivate', { private: pv.checked }); return; }
     const rm = ev.target.closest('[data-room]');
     if (rm) return joinCode(rm.dataset.room);
-    const t = ev.target.closest('[data-lv],[data-aic],[data-kick],[data-act],[data-game],[data-pp],[data-hand],[data-choose],[data-shake],[data-flipc],[data-gs],[data-gk],[data-bet],[data-floor],[data-stop]');
+    const t = ev.target.closest('[data-lv],[data-aic],[data-kick],[data-act],[data-game],[data-pp],[data-hand],[data-choose],[data-shake],[data-flipc],[data-gs],[data-gk],[data-ailv],[data-bet],[data-floor],[data-stop]');
     if (!t) return;
     const d = t.dataset;
     if (d.stop) return;
@@ -1466,6 +1471,7 @@
     if (d.flipc != null) return emit('action', { type: 'chooseFlip', floorCard: Number(d.flipc) });
     if (d.kick) { if (d.ai || confirm('이 참가자를 내보낼까요?')) emit('kick', { pid: d.kick }); return; }
     if (d.gs) return emit('action', { type: d.gs });
+    if (d.ailv) { const r = await emit('setAiLevel', { level: d.ailv }); if (r && r.ok) toast(`🤖 AI 난이도: ${lvName(d.ailv)}`); return; }
     if (d.gk) return emit('action', { type: 'gukjin', asYeol: d.gk === 'yeol' });
     if (d.bet) { beep(600, 0.06); return emit('action', { type: d.bet }); }
     switch (d.act) {
@@ -1473,7 +1479,7 @@
         const name = getName(); if (!name) return;
         const pp = ui.create.stake[ui.create.game];
         const bonusEl = document.getElementById('bonus');
-        const r = await emit('createRoom', { game: ui.create.game, perPoint: pp, bonus: bonusEl ? bonusEl.checked : true, pid, name, private: !!ui.create.priv });
+        const r = await emit('createRoom', { game: ui.create.game, perPoint: pp, bonus: bonusEl ? bonusEl.checked : true, pid, name, private: !!ui.create.priv, level: 'normal' }); // 친구 방: AI 난이도는 대기실에서
         if (r.ok) { LS.set('hw_room', r.code); history.replaceState(null, '', '/?room=' + r.code); }
         return;
       }

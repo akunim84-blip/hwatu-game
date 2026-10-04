@@ -167,6 +167,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     if (o.phase === 'play') { const k = o.cards[0]; s.emit('action', k ? { type: 'play', card: k.id, floorCard: k.matches ? k.matches[0] : undefined } : { type: 'flipOnly' }, cbk); }
     else if (o.phase === 'goStop') s.emit('action', { type: 'stop' }, cbk);
     else if (o.phase === 'chooseFlip') s.emit('action', { type: 'chooseFlip', floorCard: o.choices[0] }, cbk);
+    else if (o.phase === 'gukjin') s.emit('action', { type: 'gukjin', asYeol: false }, cbk);
     else errors.push('helper phase ' + o.phase);
   };
   s.on('state', step);

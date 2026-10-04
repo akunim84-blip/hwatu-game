@@ -10,7 +10,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 (async () => {
   const browser = await puppeteer.launch({ executablePath: '/usr/bin/google-chrome', headless: 'new', args: ['--no-sandbox', '--lang=ko-KR'] });
-  const errors = [], report = [];
+  const errors = [], report = [], out = {};
   const newPage = async (label) => {
     const ctx = await browser.createBrowserContext();
     const p = await ctx.newPage();
@@ -28,6 +28,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     if (q('.res-ov .rm-row')) return 'result';
     if (q('[data-gs]')) { q('[data-gs="stop"]').click(); return 'gs'; }
     if (q('[data-flipc]')) { q('[data-flipc]').click(); return 'flip'; }
+    if (q('[data-gk]')) { q('[data-gk="pi"]').click(); return 'gk'; }
     if (q('[data-choose]')) { q('[data-choose]').click(); return 'choose'; }
     if (q('[data-shake]')) { q('[data-shake="1"]').click(); return 'shake'; }
     const bet = q('[data-bet="call"]') || q('[data-bet="check"]') || q('[data-bet="bbing"]');
@@ -94,8 +95,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await host.waitForSelector('.code-big');
   const code = await host.$eval('.code-big', (el) => el.textContent.trim());
   await tap(host, '[data-act="addAI"]'); await sleep(300);
-  await tap(host, '[data-lv="easy"]'); await tap(host, '[data-act="addAI"]'); await sleep(300);
+  // AI 난이도 (방 전체): 고수로 바꾸면 이미 앉은 AI도 함께 바뀜
+  await tap(host, '[data-ailv="hard"]'); await sleep(300); await tap(host, '[data-act="addAI"]'); await sleep(300);
   const n1 = await host.$$eval('.plist li', (l) => l.length);
+  out.aiLevelTags = await host.$$eval('.plist .tag.ai', (l) => l.map((x) => x.textContent));
+  out.aiLevelInfo = await host.$eval('.panel .muted', (e) => e.textContent.includes('AI 고수'));
   await shot(host, 'ai-lobby');
   await tap(host, '[data-kick][data-ai]'); await sleep(300);
   const n2 = await host.$$eval('.plist li', (l) => l.length);
@@ -109,6 +113,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     if (o.phase === 'play') { const c = o.cards[0]; a = c ? { type: 'play', card: c.id, floorCard: c.matches && c.matches[0] } : { type: 'flipOnly' }; }
     else if (o.phase === 'chooseFlip') a = { type: 'chooseFlip', floorCard: o.choices[0] };
     else if (o.phase === 'goStop') a = { type: 'stop' };
+    else if (o.phase === 'gukjin') a = { type: 'gukjin', asYeol: false };
     if (a) { fl = st.room.actSeq; setTimeout(() => friend.emit('action', a, () => {}), 600); }
   });
   await new Promise((r) => friend.emit('joinRoom', { code, pid: 'friend-' + Date.now(), name: '지영' }, r));
@@ -119,7 +124,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let mixedDone = false;
   for (let k = 0; k < 1200; k++) { const r = await step(host); if (r === 'result') { mixedDone = true; break; } await sleep(200); }
   await shot(host, 'ai-gostop-mixed-result');
-  report.push({ lobby: { afterAdd2: n1, afterRemove1: n2, afterFriendJoin: n3 }, mixedFullRound: mixedDone });
+  report.push({ lobby: { afterAdd2: n1, afterRemove1: n2, afterFriendJoin: n3 }, mixedFullRound: mixedDone, aiLevel: out });
+  if (!(out.aiLevelTags && out.aiLevelTags.length === 2 && out.aiLevelTags.every((t) => t === 'AI·고수') && out.aiLevelInfo)) errors.push('AI 난이도 표시: ' + JSON.stringify(out));
   friend.close();
   await browser.close();
   console.log(JSON.stringify(report, null, 1));
