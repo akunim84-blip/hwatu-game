@@ -45,7 +45,7 @@ function showLogin(msg) {
 }
 function shell() {
   $('#app').innerHTML = `<header><h1>🎴 혁게임 관리자</h1><button class="btn" id="chkey">🔑 비밀번호</button><button class="btn" id="logout">로그아웃</button></header>
-    <div class="tabs"><button class="tab ${st.tab === 'acc' ? 'on' : ''}" data-tab="acc">👤 계정</button><button class="tab ${st.tab === 'room' ? 'on' : ''}" data-tab="room">🎲 방</button></div><main id="body"></main>`;
+    <div class="tabs"><button class="tab ${st.tab === 'acc' ? 'on' : ''}" data-tab="acc">👤 계정</button><button class="tab ${st.tab === 'room' ? 'on' : ''}" data-tab="room">🎲 방</button><button class="tab ${st.tab === 'data' ? 'on' : ''}" data-tab="data">💾 데이터</button></div><main id="body"></main>`;
   $('#logout').onclick = async () => { await api('/logout', {}); showLogin(); };
   $('#chkey').onclick = changeKey;
   document.querySelectorAll('[data-tab]').forEach((b) => b.onclick = () => { st.tab = b.dataset.tab; main(); });
@@ -118,10 +118,58 @@ function drawRooms() {
     $('#mok').onclick = async () => { const r = await api('/room/close', { code: b.dataset.close }); if (!r.ok) return ($('#merr').textContent = r.error); modal(''); toast('방을 닫았어요'); loadRooms(); };
   });
 }
+
+async function loadData() {
+  const stt = await api('/import-status'); if (!stt.ok) return toast(stt.error);
+  const body = $('#body'); if (!body) return;
+  const done = stt.importDone;
+  body.innerHTML = `<div class="card"><div class="name">💾 데이터 내보내기 / 가져오기</div>
+    <p class="muted" style="margin:8px 0;line-height:1.5">Neon → NAS 이전용. 계정·PIN·기기 토큰·잔액·전적·관리자 키를 통째로 옮깁니다. 저장소: <b>${esc(stt.storage)}</b></p>
+    <p class="muted">지금 DB: 계정 ${stt.state ? stt.state.accounts : '?'}개 · 토큰 ${stt.state ? stt.state.tokens : '?'} · 설정 ${stt.state ? stt.state.settings : '?'}${done ? ' · 가져오기 완료 (' + esc(done.at || '') + ')' : ''}</p>
+    <div class="acts" style="margin-top:10px">
+      <button class="btn pri" id="exj">⬇️ JSON 받기</button>
+      <button class="btn" id="exs">⬇️ SQL 받기</button>
+    </div></div>
+    <div class="card"><div class="name">📥 데이터 가져오기</div>
+    <p class="muted" style="margin:8px 0;line-height:1.5">백업 JSON 또는 (이 앱이 만든) SQL 파일을 올리면 빈 DB에 넣습니다. 이미 계정이 있으면 거부돼요. 덮어쓰기는 위험하니 확인 문구를 입력해야 해요.</p>
+    <input type="file" id="df" accept=".json,.sql,application/json,text/plain">
+    <label class="muted" style="display:block;margin-top:8px"><input type="checkbox" id="repl"> 기존 데이터를 지우고 덮어쓰기 (되돌릴 수 없음)</label>
+    <div class="acts" style="margin-top:10px"><button class="btn pri" id="imp">가져오기</button></div>
+    <div class="err" id="derr"></div></div>`;
+  $('#exj').onclick = async () => {
+    const r = await api('/export?format=json'); if (!r.ok) return toast(r.error);
+    const blob = new Blob([JSON.stringify(r.payload, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'hwatu-export.json'; a.click();
+    toast('JSON 저장 · 계정 ' + r.counts.hwatu_accounts + '개');
+  };
+  $('#exs').onclick = async () => {
+    const r = await api('/export?format=sql'); if (!r.ok) return toast(r.error);
+    const blob = new Blob([r.sql], { type: 'application/sql' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'hwatu-export.sql'; a.click();
+    toast('SQL 저장 · 계정 ' + r.counts.hwatu_accounts + '개');
+  };
+  $('#imp').onclick = async () => {
+    const f = $('#df').files && $('#df').files[0]; if (!f) return ($('#derr').textContent = '파일을 골라 주세요');
+    const replace = $('#repl').checked;
+    if (replace) {
+      const ok = prompt("덮어쓰려면 REPLACE 라고 입력하세요");
+      if (ok !== 'REPLACE') return ($('#derr').textContent = '취소했어요');
+    }
+    $('#derr').textContent = '올리는 중…';
+    const text = await f.text();
+    const r = await fetch('/admin/api/import-raw?mode=' + (replace ? 'replace' : 'empty-only'), {
+      method: 'POST', headers: { 'content-type': 'text/plain', 'x-admin-req': '1' }, body: text, credentials: 'same-origin'
+    }).then((x) => x.json()).catch(() => ({ ok: false, error: '서버 오류' }));
+    if (!r.ok) return ($('#derr').textContent = r.error || '실패');
+    $('#derr').textContent = '';
+    toast('가져오기 완료 · 계정 ' + (r.counts && r.counts.hwatu_accounts) + '개');
+    loadData();
+  };
+}
 async function main() {
   const me = await api('/me'); if (!me.ok) return ($('#app').innerHTML = `<div class="center">${esc(me.error)}</div>`);
   if (!me.authed) return showLogin();
-  shell(); if (st.tab === 'acc') loadAcc(); else loadRooms();
+  shell(); if (st.tab === 'acc') loadAcc(); else if (st.tab === 'data') loadData(); else loadRooms();
 }
 $('#modal').onclick = (e) => { if (e.target.id === 'modal') modal(''); };
 main();

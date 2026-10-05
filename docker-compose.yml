@@ -1,32 +1,89 @@
-# 혁게임 — Synology Container Manager '프로젝트'용 (docs/synology.md 참고)
-# ⚠️ 이 파일은 NAS 에서 붙여넣은 뒤 <...> 부분만 바꾸세요. 실제 비밀번호/주소를 GitHub 에 올리지 마세요.
+# 혁게임 — Synology 레거시 Docker + Task Scheduler `hyukgame_start` 용
+# ⚠️ NAS에 붙여넣은 뒤 <...> 자리만 바꾸세요. 실제 비밀번호는 GitHub에 올리지 마세요.
+# Postgres는 같은 compose 안 내부 네트워크만 사용 (호스트 포트 없음).
+# 파일 형식: Compose v3 (구형 docker-compose 1.x / Synology Docker 패키지에서 동작 확인된 문법만 사용)
+
+version: "3.3"
+
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: hwatu-db
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Seoul
+      POSTGRES_USER: hwatu
+      POSTGRES_PASSWORD: "<NAS_PG_PASSWORD>"
+      POSTGRES_DB: hwatu
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+    # 호스트에 5432를 열지 않음 — 앱 컨테이너에서만 db:5432 로 접속
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hwatu -d hwatu"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
   hwatu-game:
     image: ghcr.io/akunim84-blip/hwatu-game:latest
     container_name: hwatu-game
     restart: unless-stopped
+    depends_on:
+      - db
     ports:
       - "3300:3300"
     environment:
       TZ: Asia/Seoul
       PORT: "3300"
       TRUST_PROXY: "1"
-      # Render 대시보드 > hwatu-game > Environment 의 DATABASE_URL 값을 그대로 붙여넣기 (따옴표 안에)
-      DATABASE_URL: "<여기에 DATABASE_URL 붙여넣기>"
-      # 관리자 키 (선택, 비워 둬도 됨). 관리자 페이지에서 키를 한 번이라도 바꿨다면 DB 에 저장된 키가 쓰이므로 비워 두세요.
-      # DB 에 저장된 키가 없을 때만 이 값이 관리자 키가 됩니다 (8자 이상, 남이 못 맞힐 값).
+      # 내부 호스트명 db (위 서비스). SSL 없음.
+      DATABASE_URL: "postgresql://hwatu:<NAS_PG_PASSWORD>@db:5432/hwatu"
+      # 관리자 키: DB에 저장된 키가 있으면 비워 두세요. (Neon에서 가져오면 admin_key 설정이 같이 옴)
       ADMIN_KEY: ""
+      BACKUP_DIR: "/app/backups"
+      BACKUP_KEEP_DAYS: "14"
+      # --- 최초 1회만 (Neon → NAS 복사) ---
+      # Neon DATABASE_URL 을 잠깐 넣고 컨테이너를 한 번 띄운 뒤, 로그에 "가져오기 완료"가 보이면
+      # 이 줄을 지우거나 비우고 다시 시작하세요. 이미 계정이 있거나 import_done 이 있으면 다시 안 돌습니다.
+      # IMPORT_FROM_URL: "<NEON_DATABASE_URL>"
+    volumes:
+      - ./backups:/app/backups
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3300/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 40s
 
-  # (선택) 공유기 포트포워딩을 못 할 때만: Cloudflare Tunnel
-  # 평소에는 'tunnel' 프로필이라 실행되지 않습니다.
-  # 쓰려면: ① TUNNEL_TOKEN 에 Cloudflare 터널 토큰을 넣고 ② 아래 'profiles: ["tunnel"]' 줄을 지운 뒤 ③ 프로젝트를 다시 빌드.
-  # Cloudflare 쪽 '공개 호스트 이름'의 서비스 주소는  http://hwatu-game:3300  으로 지정합니다.
+  # 일일 pg_dump (앱의 JSON/SQL 백업과 별도로, 바이너리 도구로 한 번 더)
+  pg-backup:
+    image: postgres:16-alpine
+    container_name: hwatu-pg-backup
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      TZ: Asia/Seoul
+      PGPASSWORD: "<NAS_PG_PASSWORD>"
+    volumes:
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        echo "[pg-backup] waiting for db…"
+        until pg_isready -h db -U hwatu -d hwatu; do sleep 3; done
+        while true; do
+          TS=$$(date +%Y%m%d-%H%M)
+          echo "[pg-backup] $$TS dumping…"
+          pg_dump -h db -U hwatu -d hwatu --no-owner --no-acl -F p -f /backups/pgdump-$$TS.sql
+          find /backups -name 'pgdump-*.sql' -mtime +14 -delete 2>/dev/null || true
+          echo "[pg-backup] done, sleep 24h"
+          sleep 86400
+        done
+
+  # (선택) Cloudflare Tunnel — 평소에는 profiles 때문에 안 뜸
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: hwatu-cloudflared

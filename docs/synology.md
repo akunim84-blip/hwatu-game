@@ -1,5 +1,7 @@
 # 혁게임을 내 시놀로지 NAS에서 돌리기 (DSM 7.2 · Container Manager)
 
+> 📦 **DS718+ 레거시 Docker + 로컬 Postgres** 로 Neon을 떠나는 절차는 [`nas-postgres-migrate.md`](./nas-postgres-migrate.md) 를 보세요. (이 문서는 Container Manager + Neon URL 공유형 안내입니다.)
+
 이 안내대로 하면 혁게임이 **내 NAS에서 24시간** 돌아가고, `https://내이름.synology.me` 같은 **내 주소**로 들어갈 수 있어요.
 어려운 명령어 입력은 없어요. 화면에서 누르고, 복사해서 붙여넣기만 하면 됩니다.
 

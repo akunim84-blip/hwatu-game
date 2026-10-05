@@ -868,9 +868,18 @@ setInterval(() => {
 }, 10 * 60 * 1000).unref();
 
 if (require.main === module) {
+  // Neon → NAS 이전: IMPORT_FROM_URL 이 있고 로컬 DB가 비어 있으면 한 번만 복사 (그 뒤엔 import_done 설정으로 스킵)
+  const dbx = require('./lib/db-transfer');
+  accounts.ready.then(() => dbx.maybeImportOnBoot(accounts)).catch((e) => console.error('[db-transfer] 기동 시 가져오기 실패:', e.message));
+  // 일일 백업: BACKUP_DIR (기본 /app/backups, 도커 볼륨) 에 SQL+JSON, 14일 보관
+  const backupDir = process.env.BACKUP_DIR || (process.env.DATABASE_URL ? '/app/backups' : '');
+  let backupCtl = null;
+  if (backupDir && process.env.DATABASE_URL) {
+    backupCtl = dbx.startDailyBackup(process.env.DATABASE_URL, backupDir, { keepDays: Number(process.env.BACKUP_KEEP_DAYS || 14) });
+  }
   server.listen(PORT, () => console.log(`화투 게임 서버: http://localhost:${PORT}`));
   // Docker 정지/재시작(SIGTERM) 때 바로 깔끔하게 종료
-  const bye = (sig) => { console.log(`${sig} 받음 → 서버 종료`); io.close(); setTimeout(() => process.exit(0), 800).unref(); };
+  const bye = (sig) => { console.log(`${sig} 받음 → 서버 종료`); if (backupCtl) backupCtl.stop(); io.close(); setTimeout(() => process.exit(0), 800).unref(); };
   process.once('SIGTERM', () => bye('SIGTERM'));
   process.once('SIGINT', () => bye('SIGINT'));
 }

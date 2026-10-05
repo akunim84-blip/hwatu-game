@@ -25,7 +25,7 @@ COPY public ./public
 COPY public-admin ./public-admin
 
 # DATABASE_URL 이 없을 때 쓰는 JSON 저장소 폴더 (쓰기 가능해야 함) + 비루트 사용자
-RUN mkdir -p /app/data && chown -R node:node /app/data
+RUN mkdir -p /app/data /app/backups && chown -R node:node /app/data /app/backups
 USER node
 
 EXPOSE 3300
